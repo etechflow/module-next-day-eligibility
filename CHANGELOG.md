@@ -4,6 +4,54 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
+## [1.6.0] — 2026-05-23 — Close the MSI stock-event propagation gap
+
+A customer found a product (KS00926) with `qty=0` but `next_day_eligible=1` — the existing observer pipeline never recomputed because the stock dropped to zero through a path that doesn't fire `cataloginventory_stock_item_save_after`. Investigation showed this is a systematic gap on Magento 2.3+ with MSI installed, affecting most modern stock-change flows.
+
+### Root cause
+
+NDE's original observers in `etc/events.xml` listen for two events:
+
+- `cataloginventory_stock_item_save_after` — fires on direct legacy `cataloginventory_stock_item` saves
+- `catalog_product_save_after` — fires on product entity save
+
+On Magento 2.3+ with MSI installed, most stock changes go through `Magento\InventoryApi\Api\SourceItemsSaveInterface`, which does NOT trigger `cataloginventory_stock_item_save_after`. The legacy table is updated later by MSI's sync indexer, but that sync runs without firing a save event our observer could hook. Flows that silently bypassed the recompute:
+
+- Order shipment → MSI reservation collapse → indexer-only update
+- Refund / credit memo restocking
+- Source-items save via REST / SOAP / GraphQL API
+- Admin "Manage Stock" screen on a single source
+- Bulk import via MSI source-items endpoint
+
+### Added
+
+- **`Plugin/RecomputeOnMsiSourceItemsSave.php`** — `afterExecute` plugin on `Magento\InventoryApi\Api\SourceItemsSaveInterface`. For each saved source item, resolves SKU → product ID and calls `EligibilityEvaluator::evaluateById()`. Soft-installed: if MSI isn't present (rare on Magento 2.3+ but possible on stripped builds), Magento silently ignores the `<type>` declaration in `etc/di.xml` because the target interface doesn't exist — no fatal, plugin just never runs.
+
+- **`Cron/RecomputeStaleEligibility.php` + `etc/crontab.xml`** — hourly safety-net cron. Iterates simple products (up to 5000 per run), calls `EligibilityEvaluator::evaluateById()` on each. Belt-and-braces backstop for any propagation hole the plugin doesn't cover. Evaluator is idempotent so re-running on a fresh row is a cheap no-op. Schedule: `0 * * * *`.
+
+- **`Console/Command/ResyncEligibilityCommand.php`** — `bin/magento etechflow:nde:resync`. One-shot full-catalogue re-evaluation. Supports `--sku=A,B,C` to narrow to specific SKUs and `--dry-run` to count without writing. Use cases: cleanup right after upgrading to v1.6.0; manual fix for known-stale SKUs; CI / health-check via dry-run.
+
+### Unchanged
+
+- Existing observers (`cataloginventory_stock_item_save_after`, `catalog_product_save_after`) stay — they still catch direct legacy saves and product saves. v1.6.0 is purely additive coverage.
+- `EligibilityEvaluator` logic unchanged. Precedence rules (force_standard > drop_ship > supplier > stock) stay identical.
+- StockRegistryInterface reads — still legacy. If we find STILL-stale state after v1.6.0, switch evaluator reads to MSI's `IsProductSalableInterface` as a v1.7 follow-up. Out of scope here.
+
+### Migration
+
+```
+composer update etechflow/module-next-day-eligibility
+bin/magento setup:upgrade
+bin/magento setup:di:compile
+bin/magento setup:static-content:deploy -f
+bin/magento cache:flush
+bin/magento etechflow:nde:resync   # one-shot cleanup of any pre-existing stale rows
+```
+
+The hourly cron takes over from there. No schema changes, no breaking changes.
+
+---
+
 ## [1.5.1] — 2026-05-19
 
 ### Click & Collect / In-Store Pickup filter

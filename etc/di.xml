@@ -8,6 +8,26 @@
                 disabled="false" />
     </type>
 
+    <!--
+        v1.6.0: hook MSI's SourceItemsSaveInterface so MSI-driven stock
+        changes (order shipment reservation collapse, refund restock,
+        REST/SOAP/GraphQL source-item saves, bulk imports) trigger NDE
+        recomputation. NDE's legacy cataloginventory_stock_item_save_after
+        observer does NOT fire for these flows because MSI updates the
+        legacy table via indexer rather than via a save event.
+
+        If MSI isn't installed (rare on Magento 2.3+, possible on stripped
+        builds), Magento silently ignores this <type> declaration because
+        the target interface doesn't exist. No error, no fatal — the
+        plugin just never runs.
+    -->
+    <type name="Magento\InventoryApi\Api\SourceItemsSaveInterface">
+        <plugin name="etechflow_nextday_recompute_on_msi_save"
+                type="ETechFlow\NextDayEligibility\Plugin\RecomputeOnMsiSourceItemsSave"
+                sortOrder="10"
+                disabled="false" />
+    </type>
+
     <!-- Register the v1.4.0 verification command: bin/magento etechflow:nde:verify -->
     <type name="Magento\Framework\Console\CommandList">
         <arguments>
@@ -16,6 +36,8 @@
                       xsi:type="object">ETechFlow\NextDayEligibility\Console\Command\VerifyCommand</item>
                 <item name="etechflow_nde_list_methods"
                       xsi:type="object">ETechFlow\NextDayEligibility\Console\Command\ListMethodsCommand</item>
+                <item name="etechflow_nde_resync"
+                      xsi:type="object">ETechFlow\NextDayEligibility\Console\Command\ResyncEligibilityCommand</item>
             </argument>
         </arguments>
     </type>

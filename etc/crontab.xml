@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Cron:etc/crontab.xsd">
+    <group id="default">
+        <!--
+            Hourly safety-net: re-evaluate next_day_eligible for all simple
+            products. Catches any stock change that bypassed the v1.6.0 MSI
+            source-items plugin (rare but possible — failed indexer sync,
+            custom modules writing stock outside MSI's API, etc.).
+
+            Schedule: top of every hour. Adjust if your catalogue is large
+            enough to make hourly resync expensive (see PROCESS_LIMIT in
+            the Cron class — defaults to 5000 products per run).
+        -->
+        <job name="etechflow_nextday_recompute_stale_eligibility"
+             instance="ETechFlow\NextDayEligibility\Cron\RecomputeStaleEligibility"
+             method="execute">
+            <schedule>0 * * * *</schedule>
+        </job>
+    </group>
+</config>
