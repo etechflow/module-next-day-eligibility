@@ -22,10 +22,29 @@ class Config
     private const XML_PATH_DROP_SHIP_SOURCE       = 'etechflow_nextdayeligibility/drop_ship/source';
     private const XML_PATH_SUPPLIER_PAIRS         = 'etechflow_nextdayeligibility/drop_ship/supplier_pairs';
     private const XML_PATH_SUPPLIER_QUALIFYING    = 'etechflow_nextdayeligibility/drop_ship/qualifying_suppliers';
+    private const XML_PATH_SUPPLIER_MATCH_MODE    = 'etechflow_nextdayeligibility/drop_ship/supplier_match_mode';
     private const XML_PATH_BADGE_VISIBILITY = 'etechflow_nextdayeligibility/general/badge_visibility';
 
     public const DROP_SHIP_SOURCE_FLAG     = 'flag';
     public const DROP_SHIP_SOURCE_SUPPLIER = 'supplier';
+
+    /**
+     * Supplier match modes (v1.6.3+).
+     *
+     * FIRST_ACTIVE_WINS  — iterate slots in priority order; STOP at the first
+     *                      active slot; return whether that slot's name is in
+     *                      the qualifying list. Models "the supplier we'll
+     *                      actually ship from is the first-active one, and
+     *                      eligibility must reflect THAT supplier's capability."
+     *                      Recommended for new installs.
+     *
+     * ANY_ACTIVE_QUALIFYING — iterate ALL active slots; return true if any
+     *                         match the qualifying list. Loose OR semantics.
+     *                         Pre-v1.6.3 default; preserved on existing
+     *                         installs via setup patch for backward compat.
+     */
+    public const MATCH_FIRST_ACTIVE_WINS     = 'first_active_wins';
+    public const MATCH_ANY_ACTIVE_QUALIFYING = 'any_active_qualifying';
     private const XML_PATH_SHOW_NOTICE = 'etechflow_nextdayeligibility/notice/show_notice';
     private const XML_PATH_NOTICE_STYLE = 'etechflow_nextdayeligibility/notice/notice_style';
     private const XML_PATH_NOTICE_TITLE = 'etechflow_nextdayeligibility/notice/notice_title';
@@ -306,6 +325,32 @@ class Config
             $pairs[] = ['active' => $active, 'name' => $name];
         }
         return $pairs;
+    }
+
+    /**
+     * Which supplier-match mode is active. Returns one of the MATCH_* constants
+     * on this class. Default for unset value = first_active_wins (the v1.6.3+
+     * recommended semantics).
+     *
+     * Existing installs upgrading from < 1.6.3 are pinned to
+     * `any_active_qualifying` by the SetSupplierMatchModeLegacyForUpgrades
+     * data patch, so their behaviour doesn't silently change. They can flip
+     * to `first_active_wins` from the admin when ready.
+     *
+     * @param int|null $storeId
+     * @return string
+     */
+    public function getSupplierMatchMode(?int $storeId = null): string
+    {
+        $value = $this->scopeConfig->getValue(
+            self::XML_PATH_SUPPLIER_MATCH_MODE,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        );
+        $value = is_string($value) ? trim($value) : '';
+        return $value === self::MATCH_ANY_ACTIVE_QUALIFYING
+            ? self::MATCH_ANY_ACTIVE_QUALIFYING
+            : self::MATCH_FIRST_ACTIVE_WINS;
     }
 
     /**

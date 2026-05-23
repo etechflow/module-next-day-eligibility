@@ -134,8 +134,13 @@ abstract class MethodStatusDisplay extends Field
             . '</div>';
     }
 
-    private function escapeHtml(string $value): string
-    {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    }
+    // NOTE v1.6.4: removed the private escapeHtml() override that lived here in
+    // v1.6.2 + v1.6.3. PHP refuses to reduce visibility of a method inherited
+    // from a parent (AbstractBlock::escapeHtml() is public). Result was a
+    // fatal on admin page load — same admin page that hosts this status block.
+    //
+    // The parent's public escapeHtml() is exactly what we want anyway: it
+    // uses Magento\Framework\Escaper which is the canonical, properly-tested
+    // escape path. The private htmlspecialchars wrapper was unnecessary +
+    // worse than the framework default.
 }

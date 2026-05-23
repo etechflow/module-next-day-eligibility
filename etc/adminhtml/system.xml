@@ -449,6 +449,33 @@ RushShip Express</pre>
                         (eligibility falls back to the manual flag).
                     ]]></comment>
                 </field>
+                <field id="supplier_match_mode"
+                       translate="label comment tooltip"
+                       type="select"
+                       sortOrder="50"
+                       showInDefault="1"
+                       showInWebsite="1"
+                       showInStore="1">
+                    <label>Supplier Match Mode</label>
+                    <source_model>ETechFlow\NextDayEligibility\Model\Source\SupplierMatchMode</source_model>
+                    <depends>
+                        <field id="source">supplier</field>
+                    </depends>
+                    <tooltip>How the resolver walks the supplier slots. First-active-wins (recommended) models real fulfillment — eligibility reflects the supplier you'd actually ship from.</tooltip>
+                    <comment><![CDATA[
+                        <strong>First active wins (v1.6.3+ recommended):</strong> walk slots in
+                        priority order. STOP at the first slot whose <em>active</em> attribute is Yes.
+                        Eligibility = is THAT slot's supplier name in the qualifying list above?
+                        Models real fulfillment — the supplier you'd actually ship from drives
+                        the next-day badge.<br/><br/>
+                        <strong>Any active qualifying (legacy):</strong> iterate ALL active slots.
+                        If any one matches the qualifying list, mark eligible. Loose OR semantics —
+                        pre-v1.6.3 default.<br/><br/>
+                        <em>Existing installs upgrading from before v1.6.3 are pinned to the legacy
+                        mode by a one-time setup patch so behaviour doesn't silently change. Flip
+                        to first-active-wins when ready.</em>
+                    ]]></comment>
+                </field>
             </group>
 
             <group id="backorder_restriction"

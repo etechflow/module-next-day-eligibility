@@ -20,6 +20,7 @@
                 <source>flag</source>
                 <supplier_pairs></supplier_pairs>
                 <qualifying_suppliers></qualifying_suppliers>
+                <supplier_match_mode>first_active_wins</supplier_match_mode>
             </drop_ship>
             <notice>
                 <show_notice>1</show_notice>

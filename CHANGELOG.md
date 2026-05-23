@@ -4,6 +4,49 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
+## [1.6.4] — 2026-05-23 — First-active-wins supplier mode + dropdown attr support + fix v1.6.2 admin-page fatal
+
+Three changes bundled. v1.6.3 was tagged internally with the first two but never published — v1.6.4 supersedes it with the visibility fix included.
+
+### Fixed
+
+- **Admin page fatal carried over from v1.6.2.** `Block/Adminhtml/Form/Field/MethodStatusDisplay.php` declared `escapeHtml()` as `private`, which reduced visibility vs `AbstractBlock::escapeHtml()` (public). PHP refused to load the class → fatal on every admin page that renders the system-config form. Caught Keystation v1.6.2 deploy; rolled back to v1.6.0. v1.6.3 inherited the broken class. **Fix:** removed the private override; the three call sites in the file now resolve to the parent's public `escapeHtml()` which uses `Magento\Framework\Escaper` (the canonical escape path). No behaviour change in admin output. The visibility bug wasn't caught by `php -l` (syntax-only) or `setup:di:compile` (the block isn't in the DI graph at compile time — it's registered via system.xml's `frontend_model`). Lesson logged as `feedback-magento-block-escape-visibility` memory for future blocks.
+
+### Added
+
+- **Supplier Match Mode admin switch.** New config field at Stores → Configuration → eTechFlow → Next Day Eligibility → Drop-Ship Settings → "Supplier Match Mode". Two modes:
+  - **First active wins (recommended for new installs)** — walk slots in priority order; STOP at the first active slot; eligibility = is THAT slot's supplier name in the qualifying list. Models real fulfillment honestly — the supplier you'd actually ship from drives the next-day badge.
+  - **Any active qualifying (legacy)** — pre-v1.6.4 behaviour. Iterate ALL active slots; eligible if any matches the qualifying list. Loose-OR semantics.
+  
+  **Why this matters:** with the legacy mode, if S1 = Onlyda (active, not next-day-capable) and S2 = Auto Remote (active, next-day-capable), the product was marked eligible — but you'd ship from S1 (Onlyda) and the customer would NOT get next-day service. First-active-wins fixes this by tying eligibility to the supplier that's actually fulfilling the order.
+  
+  Existing installs upgrading from < v1.6.4 are pinned to "Any active qualifying" by a one-time setup patch (`SetSupplierMatchModeLegacyForUpgrades`) so storefront behaviour doesn't silently flip. New installs default to "First active wins". Flip from the admin field when you're ready.
+
+- **Dropdown / multi-select supplier name attribute support.** Pre-v1.6.4 the resolver had a hard `is_string($name)` guard that bailed on any attribute returning a non-string value (i.e. any dropdown attribute returning option IDs like `42`). Result: supplier mode silently never matched on stores using dropdown attributes for supplier names — which is the common case. **Fix:** new `resolveSupplierNames()` method handles three attribute shapes:
+  - Text attribute storing a literal supplier name ("Auto remote man") → uses raw value
+  - Single-select dropdown returning an option ID (`42`) → looks up the option label via `EavConfig::getAttribute()->getSource()->getOptionText()`
+  - Multi-select returning multiple option IDs → resolves each label and matches if ANY is qualifying
+  
+  EavConfig added to `SupplierDropShipResolver` constructor. Text-attribute stores keep working unchanged.
+
+### Migration from v1.6.0
+
+```
+composer update etechflow/module-next-day-eligibility
+bin/magento setup:upgrade
+bin/magento setup:di:compile
+bin/magento setup:static-content:deploy -f
+bin/magento cache:flush
+```
+
+The setup patch detects existing installs via `setup_module.data_version` (which is `1.6.0` for you post-rollback) and pins to "Any active qualifying" mode. Storefront behaviour stays unchanged on upgrade. The admin pages that crashed under v1.6.2 now load cleanly. Flip to first-active-wins from admin when ready — comparison test plan available in the monorepo at `qa/NextDayEligibility/`.
+
+### About v1.6.3
+
+Tagged internally with the first-active-wins + dropdown changes but never published — superseded by v1.6.4 which adds the visibility fix on top. v1.6.3 is skipped on the public version timeline; treat v1.6.0 → v1.6.4 as the upgrade path.
+
+---
+
 ## [1.6.2] — 2026-05-23 — Auto-invalidate FPC after writes + admin UX for misconfigured method codes
 
 Two related quality-of-life fixes shipped together because they both address "the module is doing the right thing but customers can't tell".
