@@ -285,7 +285,7 @@
                        showInStore="1">
                     <label>Show Badge on Product Page</label>
                     <source_model>ETechFlow\NextDayEligibility\Model\Source\BadgeVisibility</source_model>
-                    <tooltip>Both = green + grey. Eligible only = green only. Never = no PDP badge.</tooltip>
+                    <tooltip>Both = show green badge for eligible + grey for ineligible. Eligible only = show green only. Never = hide both badges from product pages.</tooltip>
                     <comment><![CDATA[
                         Controls the green/grey badge on the product page.<br/>
                         <strong>Both</strong> (default) = show "Next Day Eligible" (green) for eligible products
@@ -388,16 +388,22 @@
                        showInStore="1">
                     <label>Drop-Ship Source</label>
                     <source_model>ETechFlow\NextDayEligibility\Model\Source\DropShipSource</source_model>
-                    <tooltip>Where the module reads drop-ship status from. Default = the manual Drop-Ship Eligible flag.</tooltip>
+                    <tooltip>How the module decides if a product is drop-ship. Pick "Manual tickbox" if your store is simple. Pick "Supplier-based" if products have multiple suppliers.</tooltip>
                     <comment><![CDATA[
-                        <strong>Manual flag only</strong> (default) — uses the per-product
-                        <em>Drop-Ship Eligible</em> attribute described above. Recommended for
-                        most stores.<br/><br/>
-                        <strong>Supplier-based</strong> — also checks the product's supplier
-                        attributes. Use this when you have multiple suppliers per product and
-                        only specific suppliers ship same-day. Configure the supplier attribute
-                        codes and qualifying supplier names below. The manual flag still works
-                        as an override — setting it to Yes always wins.
+                        How does the module know a product ships from a supplier (counts as
+                        next-day) rather than shipping from your own stock?
+                        <br/><br/>
+                        <strong>Manual tickbox</strong> (default, recommended) — you tick the
+                        <em>Drop-Ship Eligible</em> checkbox on each product yourself. Simple
+                        and explicit. Best for most stores.
+                        <br/><br/>
+                        <strong>Supplier-based</strong> — the module reads supplier info already
+                        on the product (e.g. attributes like "Supplier 1", "Supplier 2"). Use
+                        this if you already track multiple suppliers per product and only some
+                        of them ship next-day.
+                        <br/><br/>
+                        The manual tickbox always wins. Setting <em>Drop-Ship Eligible = Yes</em>
+                        on a product forces it to count as next-day no matter which mode you pick.
                     ]]></comment>
                 </field>
                 <field id="supplier_pairs"
@@ -411,18 +417,26 @@
                     <depends>
                         <field id="source">supplier</field>
                     </depends>
-                    <tooltip>One pair per line. Format: active_attr_code:name_attr_code</tooltip>
+                    <tooltip>Tell the module which product attributes hold supplier info. One line per supplier slot. Format: tickbox-attribute:name-attribute</tooltip>
                     <comment><![CDATA[
-                        Tells the module which product attributes hold supplier state. One pair
-                        per line, format <code>active_attr_code:name_attr_code</code>.<br/><br/>
-                        Example for a store with three supplier slots (S1, S2, S3):<br/>
+                        For each supplier slot on your products, tell the module two things:
+                        which attribute holds the on/off tickbox, and which holds the supplier
+                        name. One slot per line, separated by a colon:
+                        <code>tickbox-attribute:name-attribute</code>
+                        <br/><br/>
+                        <strong>Example</strong> — if your store has three supplier slots called
+                        Supplier 1, Supplier 2, and Supplier 3, with tickbox attributes
+                        <code>s1_active</code>, <code>s2_active</code>, <code>s3_active</code>
+                        and name attributes <code>s1</code>, <code>s2</code>, <code>s3</code>:
                         <pre style="margin:4px 0">s1_active:s1
 s2_active:s2
 s3_active:s3</pre>
-                        For each pair, the module reads <em>active_attr_code</em> (1 = active) and
-                        <em>name_attr_code</em> (supplier name) on the product, and compares the
-                        name against the qualifying list below. Lines starting with <code>#</code>
-                        are treated as comments.
+                        Order matters — the top line is your highest-priority supplier (the one
+                        you'd ship from first).
+                        <br/><br/>
+                        Lines starting with <code>#</code> are ignored, so you can leave comments.
+                        Not sure which attribute codes you have? In the admin, go to
+                        Stores → Attributes → Product and look at the "Attribute Code" column.
                     ]]></comment>
                 </field>
                 <field id="qualifying_suppliers"
@@ -436,17 +450,21 @@ s3_active:s3</pre>
                     <depends>
                         <field id="source">supplier</field>
                     </depends>
-                    <tooltip>Supplier names that count as same-day. One per line. Match is case-insensitive.</tooltip>
+                    <tooltip>List the supplier names that can ship next-day. One per line. Capitalisation doesn't matter.</tooltip>
                     <comment><![CDATA[
-                        One supplier name per line — these are the suppliers that ship same-day
-                        on your behalf. Match against the product's supplier-name attribute
-                        is case-insensitive and trims whitespace.<br/><br/>
-                        Example:<br/>
-                        <pre style="margin:4px 0">Auto remote man
-FastFreight Inc.
-RushShip Express</pre>
-                        Empty list = no supplier qualifies → supplier mode does nothing
-                        (eligibility falls back to the manual flag).
+                        Of all the suppliers you work with, which ones can actually ship next-day?
+                        List them here, one name per line. The module will mark a product as
+                        next-day eligible only if it's sourced from one of these suppliers.
+                        <br/><br/>
+                        <strong>Example</strong> — if "Auto Remote" and "FastFreight" can ship
+                        next-day, but "Remkeys" can't:
+                        <pre style="margin:4px 0">Auto Remote
+FastFreight Inc.</pre>
+                        Match is case-insensitive and ignores extra spaces, so "auto remote",
+                        "Auto Remote", and "  AUTO REMOTE " all match.
+                        <br/><br/>
+                        Leave empty and supplier mode does nothing — products fall back to the
+                        manual <em>Drop-Ship Eligible</em> tickbox.
                     ]]></comment>
                 </field>
                 <field id="supplier_match_mode"
@@ -461,19 +479,29 @@ RushShip Express</pre>
                     <depends>
                         <field id="source">supplier</field>
                     </depends>
-                    <tooltip>How the resolver walks the supplier slots. First-active-wins (recommended) models real fulfillment — eligibility reflects the supplier you'd actually ship from.</tooltip>
+                    <tooltip>Choose how to read multiple suppliers on a product. "First active wins" matches real fulfillment. "Any active qualifying" is more generous for marketing.</tooltip>
                     <comment><![CDATA[
-                        <strong>First active wins (v1.6.3+ recommended):</strong> walk slots in
-                        priority order. STOP at the first slot whose <em>active</em> attribute is Yes.
-                        Eligibility = is THAT slot's supplier name in the qualifying list above?
-                        Models real fulfillment — the supplier you'd actually ship from drives
-                        the next-day badge.<br/><br/>
-                        <strong>Any active qualifying (legacy):</strong> iterate ALL active slots.
-                        If any one matches the qualifying list, mark eligible. Loose OR semantics —
-                        pre-v1.6.3 default.<br/><br/>
-                        <em>Existing installs upgrading from before v1.6.3 are pinned to the legacy
-                        mode by a one-time setup patch so behaviour doesn't silently change. Flip
-                        to first-active-wins when ready.</em>
+                        When a product has multiple suppliers ticked, which one decides
+                        eligibility?
+                        <br/><br/>
+                        <strong>First active wins</strong> (recommended) — use the top-ranked
+                        supplier that's ticked on the product. If THAT supplier can ship
+                        next-day → eligible. If not → not eligible.
+                        <br/>
+                        <em>Pick this if</em> your fulfillment actually cascades top-to-bottom
+                        (you always ship from Supplier 1 if you can, otherwise Supplier 2, etc.).
+                        It's the most honest answer for customers.
+                        <br/><br/>
+                        <strong>Any active qualifying</strong> — eligible if ANY ticked supplier
+                        can ship next-day, regardless of which one you'd actually ship from.
+                        <br/>
+                        <em>Pick this if</em> you want the product page badge to be more
+                        optimistic for marketing, and you handle the actual supplier choice
+                        separately.
+                        <br/><br/>
+                        <em>Stores upgrading from before v1.6.3 stay on "Any active qualifying"
+                        automatically so nothing changes silently. Switch to "First active wins"
+                        when you're ready.</em>
                     ]]></comment>
                 </field>
             </group>

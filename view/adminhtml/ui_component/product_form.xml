@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<form xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="config" xsi:type="array">
+            <item name="modifiers" xsi:type="array">
+                <item name="etechflow_nde_eligibility_panel" xsi:type="array">
+                    <item name="class" xsi:type="string">ETechFlow\NextDayEligibility\Ui\DataProvider\Product\Form\Modifier\EligibilityPanel</item>
+                    <item name="sortOrder" xsi:type="number">220</item>
+                </item>
+            </item>
+        </item>
+    </argument>
+</form>

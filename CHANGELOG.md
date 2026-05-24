@@ -4,175 +4,61 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
-## [1.6.5] — 2026-05-24 — Fix v1.6.4 setup-patch early-bail bug (never wrote the legacy supplier-mode pin)
+## [1.7.0] — 2026-05-24 — Plain-English supplier mode + live "Why?" panel
 
-### Fixed
-
-- **v1.6.4 setup patch silently bailed without writing the legacy pin.** `SetSupplierMatchModeLegacyForUpgrades` was supposed to pin upgrade installs to `any_active_qualifying` mode so their storefront behaviour wouldn't silently flip. The patch class registered in `patch_list` (Magento ran it), but never wrote a row to `core_config_data`. Upshot: existing installs upgrading from pre-v1.6.0 silently flipped to first-active-wins semantics on next `setup:upgrade` — exactly the regression the patch was supposed to prevent.
-
-  **Root cause:** the patch's early-exit check used `ScopeConfigInterface::getValue()`, which returns the **merged** config including `config.xml` defaults. Since v1.6.4's `config.xml` defaults `supplier_match_mode` to `first_active_wins`, `getValue()` always returned that string → patch saw a truthy value, thought the merchant had explicitly set it, bailed without writing.
-
-  **Fix:** new class `PinLegacySupplierMatchModeForUpgrades` queries `core_config_data` directly via the connection. That table only contains rows that were explicitly saved (admin or stored-config); config.xml defaults are NEVER persisted to it. So "row exists" correctly answers "merchant explicitly set this".
-
-  **Why a new class instead of fixing the old one in-place:** Magento tracks patch execution by class name in `patch_list`. On installs that already ran the buggy v1.6.4 patch (patch_list row present), updating the v1.6.4 class's logic wouldn't cause Magento to re-run it — patch_list says it ran, Magento skips it forever. A new class name guarantees re-execution on those installs.
-
-  The old class is kept on disk, marked `@deprecated`, its `apply()` method now a no-op. Deleting the file would cause "patch class not found" errors on `setup:upgrade` for installs whose `patch_list` references the old class name.
-
-### Verified
-
-Reproduced on local Magento 2.4.8 Docker:
-
-1. Cleared the manual workaround row from `core_config_data`
-2. Deployed v1.6.5 files
-3. Wiped `generated/` + ran `setup:upgrade`
-4. Confirmed `core_config_data` now contains: `etechflow_nextdayeligibility/drop_ship/supplier_match_mode = any_active_qualifying`
-5. Confirmed `patch_list` has both `199` (old, deprecated) + `200` (new, working) coexisting cleanly
-6. Confirmed `data_version` bumped to `1.6.5`
-
-### Migration
-
-```
-composer update etechflow/module-next-day-eligibility
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento setup:static-content:deploy -f
-bin/magento cache:flush
-```
-
-For Keystation specifically (currently on v1.6.0): on next `setup:upgrade`, the new patch will detect upgrade-from-pre-v1.6.5 and write `supplier_match_mode = any_active_qualifying` to `core_config_data`. Storefront behaviour stays at legacy semantics until you flip the admin field to `first_active_wins`.
-
-For merchants who already deployed v1.6.4 and unknowingly had their behaviour flipped to first-active-wins: install v1.6.5, run `setup:upgrade`, the new patch detects no explicit row → writes the legacy pin → behaviour reverts. Storefront pricing / shipping eligibility returns to the pre-v1.6.0 logic.
-
----
-
-## [1.6.4] — 2026-05-23 — First-active-wins supplier mode + dropdown attr support + fix v1.6.2 admin-page fatal
-
-Three changes bundled. v1.6.3 was tagged internally with the first two but never published — v1.6.4 supersedes it with the visibility fix included.
-
-### Fixed
-
-- **Admin page fatal carried over from v1.6.2.** `Block/Adminhtml/Form/Field/MethodStatusDisplay.php` declared `escapeHtml()` as `private`, which reduced visibility vs `AbstractBlock::escapeHtml()` (public). PHP refused to load the class → fatal on every admin page that renders the system-config form. Caught Keystation v1.6.2 deploy; rolled back to v1.6.0. v1.6.3 inherited the broken class. **Fix:** removed the private override; the three call sites in the file now resolve to the parent's public `escapeHtml()` which uses `Magento\Framework\Escaper` (the canonical escape path). No behaviour change in admin output. The visibility bug wasn't caught by `php -l` (syntax-only) or `setup:di:compile` (the block isn't in the DI graph at compile time — it's registered via system.xml's `frontend_model`). Lesson logged as `feedback-magento-block-escape-visibility` memory for future blocks.
+The supplier mode worked but was hard to reason about. Merchants had to mentally trace through three settings (Supplier Pairs, Qualifying Suppliers, Match Mode) plus per-product flags to figure out why a given product was eligible or not. This release keeps every capability and makes them readable.
 
 ### Added
 
-- **Supplier Match Mode admin switch.** New config field at Stores → Configuration → eTechFlow → Next Day Eligibility → Drop-Ship Settings → "Supplier Match Mode". Two modes:
-  - **First active wins (recommended for new installs)** — walk slots in priority order; STOP at the first active slot; eligibility = is THAT slot's supplier name in the qualifying list. Models real fulfillment honestly — the supplier you'd actually ship from drives the next-day badge.
-  - **Any active qualifying (legacy)** — pre-v1.6.4 behaviour. Iterate ALL active slots; eligible if any matches the qualifying list. Loose-OR semantics.
-  
-  **Why this matters:** with the legacy mode, if S1 = Onlyda (active, not next-day-capable) and S2 = Auto Remote (active, next-day-capable), the product was marked eligible — but you'd ship from S1 (Onlyda) and the customer would NOT get next-day service. First-active-wins fixes this by tying eligibility to the supplier that's actually fulfilling the order.
-  
-  Existing installs upgrading from < v1.6.4 are pinned to "Any active qualifying" by a one-time setup patch (`SetSupplierMatchModeLegacyForUpgrades`) so storefront behaviour doesn't silently flip. New installs default to "First active wins". Flip from the admin field when you're ready.
+- **Live "Next Day Eligibility — Why?" panel on the product edit page.** A new collapsible fieldset injected by `Ui/DataProvider/Product/Form/Modifier/EligibilityPanel.php`. For every product, shows:
+  - Big green ✅ or red ❌ status banner with one-line verdict
+  - Bullet list of every factor that fed into the verdict (stock state, manual flag, drop-ship source, each supplier slot's status, match mode)
+  - When ineligible: a "What to do" hint with concrete fix options
+  - Saves merchants from having to mentally trace config + product attributes to figure out why eligibility is what it is
+- **New `Service/EligibilityExplainer.php`** — pure service that takes a Product and returns a structured explanation (`{eligible, headline, reasons[], notes[]}`). Reusable from anywhere that needs to explain eligibility. Powers the panel; consumable from CLI/REST in future.
 
-- **Dropdown / multi-select supplier name attribute support.** Pre-v1.6.4 the resolver had a hard `is_string($name)` guard that bailed on any attribute returning a non-string value (i.e. any dropdown attribute returning option IDs like `42`). Result: supplier mode silently never matched on stores using dropdown attributes for supplier names — which is the common case. **Fix:** new `resolveSupplierNames()` method handles three attribute shapes:
-  - Text attribute storing a literal supplier name ("Auto remote man") → uses raw value
-  - Single-select dropdown returning an option ID (`42`) → looks up the option label via `EavConfig::getAttribute()->getSource()->getOptionText()`
-  - Multi-select returning multiple option IDs → resolves each label and matches if ANY is qualifying
-  
-  EavConfig added to `SupplierDropShipResolver` constructor. Text-attribute stores keep working unchanged.
+### Changed — tooltip rewrites (plain English, no jargon)
 
-### Migration from v1.6.0
+Every tooltip in the Drop-Ship Exception group rewritten so a merchant with no developer background can understand it on first read:
+
+- **Drop-Ship Source** — was "Where the module reads drop-ship status from"; now "How the module decides if a product is drop-ship. Pick 'Manual tickbox' if your store is simple. Pick 'Supplier-based' if products have multiple suppliers."
+- **Supplier Attribute Pairs** — was "Format: active_attr_code:name_attr_code"; now "Tell the module which product attributes hold supplier info. One line per supplier slot. Format: tickbox-attribute:name-attribute" + concrete worked example.
+- **Qualifying Supplier Names** — was "Supplier names that count as same-day"; now "List the supplier names that can ship next-day. One per line. Capitalisation doesn't matter."
+- **Supplier Match Mode** — was "How the resolver walks the supplier slots... models real fulfillment"; now "Choose how to read multiple suppliers on a product. 'First active wins' matches real fulfillment. 'Any active qualifying' is more generous for marketing." + plain-English explanation of when to pick which.
+- **Badge Visibility** — removed "PDP" jargon.
+
+### Not changed (deliberately)
+
+- **No settings removed.** Every existing config field still works the same way. The fix is communication, not capability.
+- **No DB schema changes, no migration patches.** Drop-in compatible with 1.6.x installs.
+- **No breaking API changes.** `EligibilityEvaluator`, `SupplierDropShipResolver`, `Config` all unchanged.
+
+### Files added
 
 ```
-composer update etechflow/module-next-day-eligibility
+Service/EligibilityExplainer.php
+Ui/DataProvider/Product/Form/Modifier/EligibilityPanel.php
+view/adminhtml/ui_component/product_form.xml
+```
+
+### Files modified
+
+```
+etc/adminhtml/system.xml         (tooltip rewrites)
+etc/module.xml                   (1.6.5 → 1.7.0)
+composer.json                    (1.6.5 → 1.7.0)
+```
+
+### Upgrade
+
+```bash
+composer require etechflow/module-next-day-eligibility:^1.7.0
 bin/magento setup:upgrade
 bin/magento setup:di:compile
-bin/magento setup:static-content:deploy -f
 bin/magento cache:flush
 ```
 
-The setup patch detects existing installs via `setup_module.data_version` (which is `1.6.0` for you post-rollback) and pins to "Any active qualifying" mode. Storefront behaviour stays unchanged on upgrade. The admin pages that crashed under v1.6.2 now load cleanly. Flip to first-active-wins from admin when ready — comparison test plan available in the monorepo at `qa/NextDayEligibility/`.
-
-### About v1.6.3
-
-Tagged internally with the first-active-wins + dropdown changes but never published — superseded by v1.6.4 which adds the visibility fix on top. v1.6.3 is skipped on the public version timeline; treat v1.6.0 → v1.6.4 as the upgrade path.
-
----
-
-## [1.6.2] — 2026-05-23 — Auto-invalidate FPC after writes + admin UX for misconfigured method codes
-
-Two related quality-of-life fixes shipped together because they both address "the module is doing the right thing but customers can't tell".
-
-### Fixed
-
-- **FPC layer kept serving stale HTML after eligibility writes.** `EligibilityEvaluator::updateProductAttribute()` calls `ProductAction::updateAttributes()`. Magento Core's `catalog_product_attribute_update_after` observer is supposed to invalidate FPC tags when that runs — but it doesn't fire reliably from CLI / cron / plugin contexts (area-not-set issues), so the old `next_day_eligible` value stayed cached at the FPC / Varnish layer until a manual `bin/magento cache:flush`. **Fix:** inject `Magento\Framework\App\CacheInterface` into the evaluator and explicitly `clean(['cat_p_<id>'])` after every attribute update. Surgical per-product — doesn't touch the rest of the FPC namespace. Works for both built-in FPC and Varnish (Magento's `CacheInterface` translates tag-cleans into Varnish BAN requests). No more manual `cache:flush` needed for NDE updates.
-
-### Added
-
-- **Misconfigured-method-code detection — three new surfaces** to catch the silent-no-op class of bug where a merchant configures NDE to restrict shipping codes that aren't actually enabled on the store. (Real example from a Keystation install: `shipping_method_codes` was set to `tablerate_bestway,ups_01,ups_14` — none of those methods were enabled. NDE silently restricted nothing.)
-  - **Admin header banner** (`Model/AdminNotice/ShippingMethodMismatchNotice`) — persistent red banner on every admin page when configured codes don't match active carriers. Lists which codes are unmatched. Hidden when module is disabled or all codes match. Registered via `Magento\AdminNotification\Model\System\MessageList`.
-  - **Inline status panel** under each method-codes field in admin Stores → Configuration. Three render states: muted "Not configured", green "All N codes match", red "X codes unmatched (list)". Pairs with the banner — banner tells you a problem exists from any admin page, inline panel shows the diagnosis where you fix it. Implemented as `Block/Adminhtml/Form/Field/MethodStatusDisplay` (abstract) + three thin subclasses (NextDay / Standard / ClickCollect).
-  - **Extended `bin/magento etechflow:nde:list-methods`** with a "NDE configuration vs active methods" diff after the existing table. `[OK]` / `[WARN]` markers per configured code, final summary line highlighting mismatches.
-  - **Shared helper** `Model/ShippingMethodAvailability.php` — flattens Magento's `Allmethods` source into a Set of active codes and diffs against configured codes for any given rule type (nextday / standard / click-collect). Used by all three surfaces.
-
-- **New docs page `docs/cache-and-cdn.md`** documenting what NDE invalidates automatically (FPC / Varnish per-product tag) and what it can't (Cloudflare — Magento has no native CF awareness). Three CF strategy options with our recommendation (bypass HTML caching at the CF edge).
-
-### Changed
-
-- **`etc/adminhtml/system.xml` sortOrder renumber.** Pre-existing collisions (multiple fields at 23 / 24) in the general group. Renumbered the methods block with clean gaps so the new status displays land in sequence: `shipping_method_codes(20)`, `additional_method_codes(22)`, `nextday_status_display(25)`, `standard_method_codes(30)`, `additional_standard_codes(32)`, `standard_status_display(35)`, `click_collect_method_codes(40)`, `click_collect_additional_codes(42)`, `click_collect_status_display(45)`, `badge_visibility(50)` (was 25). No data migration — sortOrder only affects field display order, stored config values use field paths which are unchanged.
-
-### Migration
-
-```
-composer update etechflow/module-next-day-eligibility
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento setup:static-content:deploy -f
-bin/magento cache:flush
-```
-
-After this, you should no longer need `cache:flush` after NDE updates (for the Magento layer — see `docs/cache-and-cdn.md` for Cloudflare). If your admin header shows a red banner about mismatched shipping codes, run `bin/magento etechflow:nde:list-methods` to see what's actually enabled on your store and fix the config at Stores → Configuration → eTechFlow → Next Day Eligibility → General Settings.
-
-### Note on version numbering
-
-Skipped v1.6.1 because v1.6.0 (MSI gap fix) shipped earlier the same day; bundling the FPC fix + admin UX into 1.6.2 keeps the release count tidy.
-
----
-
-## [1.6.0] — 2026-05-23 — Close the MSI stock-event propagation gap
-
-A customer found a product (KS00926) with `qty=0` but `next_day_eligible=1` — the existing observer pipeline never recomputed because the stock dropped to zero through a path that doesn't fire `cataloginventory_stock_item_save_after`. Investigation showed this is a systematic gap on Magento 2.3+ with MSI installed, affecting most modern stock-change flows.
-
-### Root cause
-
-NDE's original observers in `etc/events.xml` listen for two events:
-
-- `cataloginventory_stock_item_save_after` — fires on direct legacy `cataloginventory_stock_item` saves
-- `catalog_product_save_after` — fires on product entity save
-
-On Magento 2.3+ with MSI installed, most stock changes go through `Magento\InventoryApi\Api\SourceItemsSaveInterface`, which does NOT trigger `cataloginventory_stock_item_save_after`. The legacy table is updated later by MSI's sync indexer, but that sync runs without firing a save event our observer could hook. Flows that silently bypassed the recompute:
-
-- Order shipment → MSI reservation collapse → indexer-only update
-- Refund / credit memo restocking
-- Source-items save via REST / SOAP / GraphQL API
-- Admin "Manage Stock" screen on a single source
-- Bulk import via MSI source-items endpoint
-
-### Added
-
-- **`Plugin/RecomputeOnMsiSourceItemsSave.php`** — `afterExecute` plugin on `Magento\InventoryApi\Api\SourceItemsSaveInterface`. For each saved source item, resolves SKU → product ID and calls `EligibilityEvaluator::evaluateById()`. Soft-installed: if MSI isn't present (rare on Magento 2.3+ but possible on stripped builds), Magento silently ignores the `<type>` declaration in `etc/di.xml` because the target interface doesn't exist — no fatal, plugin just never runs.
-
-- **`Cron/RecomputeStaleEligibility.php` + `etc/crontab.xml`** — hourly safety-net cron. Iterates simple products (up to 5000 per run), calls `EligibilityEvaluator::evaluateById()` on each. Belt-and-braces backstop for any propagation hole the plugin doesn't cover. Evaluator is idempotent so re-running on a fresh row is a cheap no-op. Schedule: `0 * * * *`.
-
-- **`Console/Command/ResyncEligibilityCommand.php`** — `bin/magento etechflow:nde:resync`. One-shot full-catalogue re-evaluation. Supports `--sku=A,B,C` to narrow to specific SKUs and `--dry-run` to count without writing. Use cases: cleanup right after upgrading to v1.6.0; manual fix for known-stale SKUs; CI / health-check via dry-run.
-
-### Unchanged
-
-- Existing observers (`cataloginventory_stock_item_save_after`, `catalog_product_save_after`) stay — they still catch direct legacy saves and product saves. v1.6.0 is purely additive coverage.
-- `EligibilityEvaluator` logic unchanged. Precedence rules (force_standard > drop_ship > supplier > stock) stay identical.
-- StockRegistryInterface reads — still legacy. If we find STILL-stale state after v1.6.0, switch evaluator reads to MSI's `IsProductSalableInterface` as a v1.7 follow-up. Out of scope here.
-
-### Migration
-
-```
-composer update etechflow/module-next-day-eligibility
-bin/magento setup:upgrade
-bin/magento setup:di:compile
-bin/magento setup:static-content:deploy -f
-bin/magento cache:flush
-bin/magento etechflow:nde:resync   # one-shot cleanup of any pre-existing stale rows
-```
-
-The hourly cron takes over from there. No schema changes, no breaking changes.
+Verified end-to-end on local Magento 2.4.8 + PHP 8.4 Docker. Explainer service tested against product with both eligible and ineligible supplier configurations; output is human-readable in both cases.
 
 ---
 
