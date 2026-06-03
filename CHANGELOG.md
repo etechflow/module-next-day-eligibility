@@ -4,6 +4,109 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
+## [1.8.0] — 2026-06-03 — Stripe portal licensing + admin gate page
+
+Adds Stripe Checkout subscription flow gated by the eTechFlow licensing
+portal. Customers can now subscribe directly from inside Magento Admin
+without leaving the panel — plan selection, card entry, and SP-XXXX key
+activation happen in the same embedded frame. HMAC + bundle key
+validation is retained as a fallback so existing v1.7.x licences
+continue to work without re-activation.
+
+### Added
+
+- **Admin subscription gate** under *Stores → Configuration → ETECHFLOW →
+  Next Day Eligibility* — when no licence is detected on a production
+  environment, the configuration page is replaced with three plan cards
+  (Starter $19/mo, Professional $49/mo, Enterprise $99/mo) and an
+  embedded customer-details form.
+- **`Controller/Adminhtml/License/Checkout.php`** — builds a Stripe
+  Checkout session against the selected plan and redirects the browser
+  to Stripe's hosted payment page.
+- **`Controller/Adminhtml/License/Activated.php`** — Stripe success-URL
+  endpoint. Calls the portal's `/license/activate` route with the
+  session ID, receives an SP-XXXX licence in the response, and writes
+  it to `core_config_data`.
+- **`Controller/Adminhtml/License/Gate.php`** — admin route that renders
+  the gate page (redirects to config when licensed).
+- **`Block/Adminhtml/License/{Gate,Activated}.php`** — view-model helpers
+  for the gate and activated templates.
+- **`view/adminhtml/templates/license/{gate,activated}.phtml`** — dark
+  navy gate page with 3 plan cards + Stripe checkout form, and the
+  License Activated success page with the SP-XXXX key + Copy button.
+- **`etc/adminhtml/routes.xml`** — new admin route
+  `etechflow_nextdayeligibility`.
+- **`etc/adminhtml/menu.xml`** — *Stores → Settings → Next Day
+  Eligibility* menu item that opens the gate page.
+- **`etc/adminhtml/di.xml`** — registers the missing
+  `EligibilityPanel` UI form modifier (was shipped without DI wiring
+  in v1.7.0 - v1.7.1, so the "Why eligible?" panel never rendered).
+- **License section expansion** in `etc/adminhtml/system.xml` — adds
+  `portal_url` and `portal_api_url` fields.
+- **Payment (Stripe) section** in `etc/adminhtml/system.xml` —
+  `stripe_secret_key` (obscure + Encrypted backend model),
+  `stripe_publishable_key`, `stripe_currency`.
+- **Tri-state portal validation** in `Model/LicenseValidator.php` — the
+  validator's portal call returns `?bool`: `true` (valid), `false`
+  (explicit reject, HTTP 200+valid:false / 401 / 403), or `null`
+  (unreachable). Only `null` falls back to the 48h local grace, so
+  admin IP-removal or subscription suspension locks the storefront
+  within 60 seconds rather than waiting for the grace window.
+- **Split cache TTLs** — `CACHE_TTL_VALID = 60` and
+  `CACHE_TTL_REJECT = 60` so re-authorisation propagates within 1 minute
+  in both directions.
+
+### Changed
+
+- `Model/LicenseValidator.php` constructor goes from 2 arguments to 4
+  (`ScopeConfigInterface`, `StoreManagerInterface`, `CacheInterface`,
+  `Curl`). Callers using `ObjectManager::get()` are unaffected. Direct
+  instantiation in tests or DI overrides needs updating.
+- `Model/BackorderManager.php::syncBackordersWithDropShip()` now also
+  sets `is_in_stock = true` on the stock item when Drop-Ship Eligible
+  is turned on. Without this, Magento's auto-OOS flip (qty=0 +
+  backorders=No at save time) left drop-ship products silently
+  unsalable despite backorders=Allow being set later by the observer.
+- Removed the hyphen-suffix dev-host bypass (e.g. `*-dev.com`,
+  `*-staging.com`). It false-matched legitimate production hosts like
+  `magento-dev.etechflow.com` and gave them a free unlimited bypass.
+- Added `.ngrok-free.dev` to the recognised tunnel suffixes.
+
+### Test changes
+
+- `Test/Unit/Model/LicenseValidatorTest.php` constructor calls updated
+  to 4-arg form with mocked `CacheInterface` and `Curl`.
+- Removed 3 dev-host bypass entries that tested the now-removed
+  hyphen-suffix behaviour. Added one entry for `.ngrok-free.dev`.
+
+### Upgrade notes
+
+- `bin/magento setup:upgrade` may need a generated/code wipe before it
+  runs cleanly: `rm -rf generated/code/* generated/metadata/* var/cache/*`
+  — the validator's constructor arity changed from 2 to 4 and stale
+  metadata causes `ArgumentCountError`.
+- Set your Stripe keys after upgrade: *Stores → Configuration →
+  ETECHFLOW → Next Day Eligibility → Payment*. Secret key is stored
+  encrypted via Magento's Encrypted backend model.
+- Existing v1.7.x HMAC licences are NOT affected — `isValid()` only
+  enters the portal branch for SP-prefixed keys.
+
+### Deferred (queued for v1.8.1)
+
+- `Service/EligibilityExplainer.php` — does not currently check
+  `force_standard_shipping_only`. The Why-box reports a product as
+  eligible when the override is active (the stored attribute is
+  correctly 0; only the explainer's verdict text is misleading). Fix
+  is to add a force_standard branch at the top of the explainer.
+- `Model/IneligibilityChecker::hasItemsWithoutLocalStock()` — uses
+  `joinField` + `getSize()` which drops the JOIN clause in COUNT
+  queries, throwing `SQLSTATE[42S22]: Column not found: 'qty'`. The
+  exception is caught silently by the plugin so it doesn't break
+  checkout, but Click & Collect filtering does not work. Fix is to
+  rewrite the method to use a raw `ResourceConnection` query.
+
+---
+
 ## [1.7.1] — 2026-05-25 — Hardening after the v1.7.0 deploy incident
 
 v1.7.0 shipped with no new data patches. On the Keystation production

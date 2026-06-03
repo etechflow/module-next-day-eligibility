@@ -70,7 +70,17 @@ class BackorderManager
                 : self::BACKORDERS_USE_CONFIG;
 
             $current = (int) $stockItem->getBackorders();
-            if ($current === $desired) {
+
+            // v1.7.2 fix: detect whether we actually need to write something.
+            // We write when EITHER the backorders flag needs flipping OR (drop-ship is
+            // on AND is_in_stock is currently 0). The latter case is the one that the
+            // pre-patch code missed — a Magento admin save with qty=0 + backorders=No
+            // had already flipped is_in_stock to 0 before this observer ran, leaving
+            // drop-ship products silently unsalable despite backorders=Allow.
+            $needsBackordersWrite  = ($current !== $desired);
+            $needsStockStatusWrite = $dropShipEligible && !$stockItem->getIsInStock();
+
+            if (!$needsBackordersWrite && !$needsStockStatusWrite) {
                 return;
             }
 
@@ -78,6 +88,19 @@ class BackorderManager
 
             // Also flip "Use Config" so our explicit value isn't overridden by store defaults
             $stockItem->setUseConfigBackorders($dropShipEligible ? false : true);
+
+            // v1.7.2 fix: when enabling backorders for a drop-ship product, also force
+            // is_in_stock=1. Without this, Magento's stock-sync rule (qty=0 +
+            // manage_stock=Yes + backorders=No at the moment of admin save) sets
+            // is_in_stock=0 *before* this observer runs, and the user-facing result is
+            // "drop-ship product with backorders=Allow but still shown as Out of Stock"
+            // — silently breaking Test 3a's promised "Add to Cart button works".
+            // When drop-ship is turned OFF we deliberately leave is_in_stock alone so
+            // Magento's standard rules can govern (otherwise we'd erroneously force OOS
+            // products back into stock).
+            if ($dropShipEligible) {
+                $stockItem->setIsInStock(true);
+            }
 
             $this->stockItemRepository->save($stockItem);
         } catch (\Exception $e) {

@@ -1,0 +1,171 @@
+<?php
+/** @var \ETechFlow\NextDayEligibility\Block\Adminhtml\License\Gate $block */
+$stripeConfigured = $block->isStripeConfigured();
+$portalConfigured = $block->isPortalConfigured();
+$domain           = $block->escapeHtml($block->getCurrentDomain());
+$checkoutUrl      = $block->escapeUrl($block->getCheckoutUrl());
+$configUrl        = $block->escapeUrl($block->getConfigUrl());
+$formKey          = $block->escapeHtml($block->getFormKey());
+?>
+<style>
+.etf-gate{background:#0d1b2a;color:#e8edf2;border-radius:12px;padding:36px 44px;margin:20px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;}
+.etf-gate .tag{display:inline-block;background:#1e3a8a;color:#60a5fa;padding:4px 14px;border-radius:14px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;font-weight:600;}
+.etf-gate h1{font-size:36px;margin:18px 0 8px;color:#fff;font-weight:600;letter-spacing:-.02em;text-align:center;}
+.etf-gate .sub{color:#93a1bd;text-align:center;font-size:14px;max-width:520px;margin:0 auto 28px;line-height:1.55;}
+.etf-gate .head{text-align:center;}
+.etf-gate .actions{text-align:center;margin-bottom:32px;display:flex;justify-content:center;gap:12px;flex-wrap:wrap;}
+.etf-gate .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 22px;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none;cursor:pointer;border:1px solid transparent;}
+.etf-gate .btn-primary{background:#3b82f6;color:#fff;}
+.etf-gate .btn-primary:hover{background:#60a5fa;color:#fff;}
+.etf-gate .btn-ghost{background:transparent;border-color:#2b3a5a;color:#e8edf2;}
+.etf-gate .btn-ghost:hover{background:#18243a;color:#fff;}
+.etf-gate .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-top:18px;}
+.etf-gate .plan{background:#131c2e;border:1px solid #1f2c47;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:12px;position:relative;transition:transform .15s,border-color .15s;}
+.etf-gate .plan:hover{transform:translateY(-2px);border-color:#3b82f6;}
+.etf-gate .plan.popular{border-color:#3b82f6;}
+.etf-gate .plan-popular-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;padding:3px 12px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;}
+.etf-gate .plan-name{font-size:18px;font-weight:600;color:#fff;}
+.etf-gate .plan-price{font-size:36px;font-weight:700;color:#fff;}
+.etf-gate .plan-price small{font-size:14px;color:#93a1bd;font-weight:400;}
+.etf-gate .plan-desc{color:#93a1bd;font-size:13px;line-height:1.5;}
+.etf-gate ul.plan-features{list-style:none;padding:0;margin:0;flex:1;}
+.etf-gate ul.plan-features li{padding:5px 0;font-size:13px;color:#cbd5e1;}
+.etf-gate ul.plan-features li::before{content:"\2713";color:#22c55e;margin-right:8px;font-weight:700;}
+.etf-gate .plan-cta{background:#3b82f6;color:#fff;border:0;padding:11px;border-radius:7px;font-weight:600;cursor:pointer;font-size:14px;text-decoration:none;display:block;text-align:center;}
+.etf-gate .plan-cta:hover{background:#60a5fa;color:#fff;}
+.etf-gate .form{display:none;background:#0a101c;border:1px solid #2b3a5a;border-radius:10px;padding:24px;margin:20px auto 0;max-width:480px;}
+.etf-gate .form.show{display:block;}
+.etf-gate .form label{display:block;color:#93a1bd;font-size:12px;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.05em;}
+.etf-gate .form input{width:100%;background:#0d1b2a;border:1px solid #2b3a5a;color:#fff;padding:10px 12px;border-radius:6px;font-size:14px;}
+.etf-gate .form input:focus{outline:none;border-color:#3b82f6;}
+.etf-gate .form .pay{background:#635bff;color:#fff;font-weight:700;padding:12px 20px;border-radius:6px;border:0;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:16px;}
+.etf-gate .form .pay:hover{background:#7c75ff;}
+.etf-gate .form .pay::before{content:"\1F4B3";font-size:18px;}
+.etf-gate .form .err{background:rgba(239,68,68,.1);border:1px solid #7f1d1d;border-radius:6px;color:#ef4444;padding:10px 14px;margin-bottom:10px;font-size:13px;display:none;}
+.etf-gate .warn-cfg{background:rgba(245,158,11,.06);border:1px solid #78350f;border-radius:8px;padding:14px 18px;margin-bottom:24px;color:#f59e0b;font-size:13px;}
+.etf-gate .domain-tag{font-family:monospace;background:rgba(255,255,255,.04);padding:3px 8px;border-radius:4px;border:1px solid #1f2c47;color:#60a5fa;}
+.etf-gate .stripe-badge{font-size:11px;color:#93a1bd;text-align:center;margin-top:12px;}
+.etf-gate .stripe-badge strong{color:#635bff;}
+</style>
+
+<div class="etf-gate">
+    <div class="head">
+        <span class="tag">eTechFlow Module</span>
+        <h1>Next Day Eligibility</h1>
+        <p class="sub">A valid license is required to use this module. Pay by card and your license key is generated instantly.</p>
+    </div>
+
+    <?php if (!$portalConfigured): ?>
+    <div class="warn-cfg">
+        <strong>License Portal URL is not set.</strong> Go to
+        <a href="<?= $configUrl ?>" style="color:#f59e0b;text-decoration:underline;">Configuration &rarr; License</a>
+        and set <strong>License Portal URL</strong>.
+    </div>
+    <?php endif; ?>
+
+    <?php if (!$stripeConfigured): ?>
+    <div class="warn-cfg">
+        <strong>Stripe is not configured.</strong> Go to
+        <a href="<?= $configUrl ?>" style="color:#f59e0b;text-decoration:underline;">Configuration &rarr; Payment (Stripe)</a>
+        and add your <strong>Stripe Secret Key</strong> + <strong>Publishable Key</strong> to enable "Select Plan &amp; Pay".
+    </div>
+    <?php endif; ?>
+
+    <div class="actions">
+        <a href="#etf-plans" class="btn btn-primary" onclick="document.getElementById('etf-plans').scrollIntoView({behavior:'smooth'});return false;">Select Plan &amp; Pay</a>
+        <a href="<?= $configUrl ?>" class="btn btn-ghost">Enter License Key Manually</a>
+    </div>
+
+    <div id="etf-plans" class="plans">
+        <div class="plan">
+            <div class="plan-name">Starter</div>
+            <div class="plan-price">$19<small>/month</small></div>
+            <div class="plan-desc">1 store, manual drop-ship tickbox</div>
+            <ul class="plan-features">
+                <li>Auto-managed Next Day Eligible attribute</li>
+                <li>Next-day shipping filter at checkout</li>
+                <li>Per-product Drop-Ship Eligible flag</li>
+                <li>Checkout banner for ineligible carts</li>
+                <li>One store, one domain</li>
+            </ul>
+            <button type="button" class="plan-cta" onclick="etfShowForm('nde_starter','Starter','$19')">Get Starter</button>
+        </div>
+
+        <div class="plan popular">
+            <div class="plan-popular-badge">Most Popular</div>
+            <div class="plan-name">Professional</div>
+            <div class="plan-price">$49<small>/month</small></div>
+            <div class="plan-desc">Multi-store + supplier mode</div>
+            <ul class="plan-features">
+                <li>Everything in Starter</li>
+                <li>Supplier-based drop-ship mode (multi-supplier products)</li>
+                <li>Backorder Express Restriction</li>
+                <li>Force Standard Shipping Only override</li>
+                <li>Up to 3 stores</li>
+            </ul>
+            <button type="button" class="plan-cta" onclick="etfShowForm('nde_professional','Professional','$49')">Get Professional</button>
+        </div>
+
+        <div class="plan">
+            <div class="plan-name">Enterprise</div>
+            <div class="plan-price">$99<small>/month</small></div>
+            <div class="plan-desc">Unlimited stores + Click &amp; Collect</div>
+            <ul class="plan-features">
+                <li>Everything in Professional</li>
+                <li>Click &amp; Collect filtering</li>
+                <li>Unlimited stores / domains</li>
+                <li>SLA-backed support</li>
+                <li>Direct phone line</li>
+            </ul>
+            <button type="button" class="plan-cta" onclick="etfShowForm('nde_enterprise','Enterprise','$99')">Get Enterprise</button>
+        </div>
+    </div>
+
+    <form id="etf-form" class="form" method="post" action="<?= $checkoutUrl ?>">
+        <input type="hidden" name="form_key" value="<?= $formKey ?>"/>
+        <input type="hidden" name="plan" id="etf-plan-input" value=""/>
+        <h3 id="etf-plan-label" style="color:#fff;margin-bottom:14px;font-size:16px;">Selected: &mdash;</h3>
+        <div class="err" id="etf-err"></div>
+        <label>Your name</label>
+        <input type="text" name="name" required placeholder="Jane Smith"/>
+        <label>Your email</label>
+        <input type="email" name="email" required placeholder="jane@yourshop.com"/>
+        <div style="margin-top:14px;font-size:12px;color:#93a1bd;">
+            License will be bound to domain: <span class="domain-tag"><?= $domain ?></span>
+        </div>
+        <button type="submit" class="pay" id="etf-pay-btn">Pay with Stripe</button>
+        <div class="stripe-badge">Secured by <strong>Stripe</strong> &mdash; test card <code>4242 4242 4242 4242</code></div>
+    </form>
+</div>
+
+<script>
+function etfShowForm(plan, label, price) {
+    document.getElementById('etf-plan-input').value = plan;
+    document.getElementById('etf-plan-label').textContent = 'Selected: ' + label + ' — ' + price + '/month';
+    document.getElementById('etf-pay-btn').textContent = 'Pay ' + price + ' with Stripe';
+    document.getElementById('etf-form').classList.add('show');
+    document.getElementById('etf-form').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+document.getElementById('etf-form').addEventListener('submit', function(e){
+    e.preventDefault();
+    const form = e.target;
+    const errBox = document.getElementById('etf-err');
+    errBox.style.display = 'none';
+    const fd = new FormData(form);
+    fetch(form.action, {method:'POST', body: fd})
+        .then(r => r.json())
+        .then(data => {
+            if (data.url) {
+                window.location.href = data.url;
+            } else {
+                errBox.textContent = data.error || 'Unknown error';
+                errBox.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            errBox.textContent = 'Network error: ' + err.message;
+            errBox.style.display = 'block';
+        });
+});
+</script>

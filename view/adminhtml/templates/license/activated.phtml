@@ -1,0 +1,69 @@
+<?php
+/** @var \ETechFlow\NextDayEligibility\Block\Adminhtml\License\Activated $block */
+$err          = $block->getError();
+$licenseKey   = $block->escapeHtml($block->getLicenseKey());
+$plan         = $block->escapeHtml($block->getPlan());
+$settingsUrl  = $block->escapeUrl($block->getSettingsUrl());
+$managementUrl= $block->escapeUrl($block->getManagementUrl());
+?>
+<style>
+.etf-success{background:#0d1b2a;color:#e8edf2;border-radius:12px;padding:48px 44px;margin:20px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;text-align:center;}
+.etf-success .check{width:72px;height:72px;background:#22c55e;border-radius:50%;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;font-size:36px;color:#fff;font-weight:700;}
+.etf-success .err-icon{background:#ef4444;font-size:42px;}
+.etf-success h1{font-size:30px;margin:6px 0 10px;color:#fff;font-weight:600;letter-spacing:-.02em;}
+.etf-success .sub{color:#93a1bd;font-size:14px;margin-bottom:32px;}
+.etf-success .keybox{background:#0a101c;border:1px solid #2b3a5a;border-radius:10px;padding:20px;font-family:monospace;font-size:18px;color:#60a5fa;word-break:break-all;max-width:540px;margin:0 auto 22px;}
+.etf-success .err-msg{background:rgba(239,68,68,.08);border:1px solid #7f1d1d;border-radius:10px;padding:18px 22px;color:#ef4444;font-size:13.5px;max-width:540px;margin:0 auto 22px;text-align:left;}
+.etf-success .copy{background:#3b82f6;color:#fff;border:0;padding:10px 22px;border-radius:7px;font-weight:600;cursor:pointer;font-size:14px;margin:0 6px;}
+.etf-success .copy:hover{background:#60a5fa;}
+.etf-success .btn-ghost{background:transparent;color:#cbd5e1;border:1px solid #2b3a5a;padding:10px 22px;border-radius:7px;font-weight:600;cursor:pointer;font-size:14px;text-decoration:none;display:inline-block;margin:0 6px;}
+.etf-success .btn-ghost:hover{background:#18243a;color:#fff;}
+.etf-success .notes{margin-top:36px;background:#131c2e;border:1px solid #1f2c47;border-radius:10px;padding:20px;text-align:left;max-width:540px;margin-left:auto;margin-right:auto;}
+.etf-success .notes h3{color:#fff;font-size:14px;margin-bottom:12px;}
+.etf-success .notes ol{margin:0;padding-left:20px;color:#93a1bd;font-size:13px;line-height:1.85;}
+.etf-success a{color:#60a5fa;}
+.etf-success code{background:#0a101c;padding:2px 6px;border-radius:4px;border:1px solid #1f2c47;}
+</style>
+
+<?php if ($err): ?>
+<div class="etf-success">
+    <div class="check err-icon">!</div>
+    <h1>Activation Failed</h1>
+    <p class="sub">The portal could not complete the license activation.</p>
+    <div class="err-msg"><?= $block->escapeHtml($err) ?></div>
+    <a href="<?= $managementUrl ?>" class="btn-ghost">&larr; Back to gate</a>
+    <a href="<?= $settingsUrl ?>" class="btn-ghost">Configuration</a>
+</div>
+<?php else: ?>
+<div class="etf-success">
+    <div class="check">&#10003;</div>
+    <h1>License Activated</h1>
+    <p class="sub">Payment received via Stripe. Next Day Eligibility is now unlocked<?php if ($plan !== ''): ?> on the <strong><?= $plan ?></strong> plan<?php endif; ?>.</p>
+
+    <div class="keybox" id="etf-key"><?= $licenseKey ?></div>
+    <button class="copy" onclick="etfCopyKey(this)">Copy License Key</button>
+    <a href="<?= $settingsUrl ?>" class="btn-ghost">Open Configuration</a>
+
+    <div class="notes">
+        <h3>What happens now</h3>
+        <ol>
+            <li>The key has been saved automatically to your store config.</li>
+            <li>The module unlocks immediately on this domain.</li>
+            <li>If the storefront cache wasn&#39;t auto-flushed, run <code>bin/magento cache:flush</code>.</li>
+            <li>Ongoing validation: the module pings the portal every hour. If your subscription is suspended remotely, the module locks within an hour.</li>
+            <li>Change the key later: <a href="<?= $settingsUrl ?>">Configuration &rarr; License</a>.</li>
+        </ol>
+    </div>
+</div>
+<?php endif; ?>
+
+<script>
+function etfCopyKey(btn) {
+    const text = document.getElementById('etf-key').textContent.trim();
+    navigator.clipboard.writeText(text).then(()=>{
+        const orig = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(()=>btn.textContent = orig, 1500);
+    });
+}
+</script>

@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Backend:etc/menu.xsd">
+    <menu>
+        <!--
+            Placed under STORES → Settings (Magento_Backend::stores_settings) — matches
+            the reference module module-account-links-manager and feels at home next to
+            other Stores Configuration entries. The URL action points at the License Gate;
+            when the module is licensed the gate redirects to Configuration.
+        -->
+        <add id="ETechFlow_NextDayEligibility::license_gate"
+             title="Next Day Eligibility"
+             module="ETechFlow_NextDayEligibility"
+             sortOrder="160"
+             parent="Magento_Backend::stores_settings"
+             action="etechflow_nextdayeligibility/license/gate"
+             resource="ETechFlow_NextDayEligibility::config"/>
+    </menu>
+</config>
