@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!--
+  Registers ETechFlow\NextDayEligibility\Ui\DataProvider\Product\Form\Modifier\EligibilityPanel
+  into the Catalog product-form modifier pool so the "Next Day Eligibility — Why?" panel
+  actually renders on the product edit page. Missing in upstream v1.7.1 — the class
+  was shipped without its DI wiring.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <virtualType name="Magento\Catalog\Ui\DataProvider\Product\Form\Modifier\Pool"
+                 type="Magento\Ui\DataProvider\Modifier\Pool">
+        <arguments>
+            <argument name="modifiers" xsi:type="array">
+                <item name="etechflow_nde_eligibility_panel" xsi:type="array">
+                    <item name="class"     xsi:type="string">ETechFlow\NextDayEligibility\Ui\DataProvider\Product\Form\Modifier\EligibilityPanel</item>
+                    <item name="sortOrder" xsi:type="number">35</item>
+                </item>
+            </argument>
+        </arguments>
+    </virtualType>
+</config>

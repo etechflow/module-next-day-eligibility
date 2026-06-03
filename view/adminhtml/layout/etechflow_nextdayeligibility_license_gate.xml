@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceContainer name="content">
+            <block class="ETechFlow\NextDayEligibility\Block\Adminhtml\License\Gate"
+                   name="etechflow.bed.license.gate"
+                   template="ETechFlow_NextDayEligibility::license/gate.phtml"/>
+        </referenceContainer>
+    </body>
+</page>

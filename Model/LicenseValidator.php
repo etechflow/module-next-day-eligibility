@@ -4,38 +4,45 @@ declare(strict_types=1);
 
 namespace ETechFlow\NextDayEligibility\Model;
 
+use Magento\Framework\App\CacheInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\HTTP\Client\Curl;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
 
 /**
- * Validates the per-domain license key for this module.
+ * Hybrid HMAC + portal license validator for ETechFlow_NextDayEligibility.
+ * Follows PORTAL_LICENSING_GUIDE.md §3-step-1.
  *
- * Customers receive a license key bound to their Magento base URL host.
- * The module gates its behaviour on this validation: an invalid key causes
- * the module to silently no-op so customers can install on staging without
- * breaking their storefront.
+ *   isValid() priority:
+ *     1. revoked = 1                       → false (portal revoke wins even in dev)
+ *     2. production_environment = No       → true (dev bypass)
+ *     3. SP-XXXX key, portal answers       → portal's answer is final (true/false)
+ *     4. SP-XXXX key, portal unreachable   → 48h local grace fallback
+ *     5. Legacy HMAC per-module key        → hash_equals(computeKey(host), key)
+ *     6. Bundle key                        → hash_equals(computeBundleKey(host), key)
+ *     7. otherwise                         → false
+ *
+ *   The portal-first ordering (changed 2026-06-02) is what makes IP-revocation
+ *   work: when the admin removes a server's IP from the portal subscription,
+ *   /license/validate returns HTTP 403 with valid:false, which counts as an
+ *   "explicit reject" and locks the module immediately. The 48h grace only
+ *   kicks in when the curl call literally cannot reach the portal (timeout,
+ *   network error, missing portal URL).
  */
 class LicenseValidator
 {
-    public const XML_PATH_LICENSE_KEY = 'etechflow_nextdayeligibility/license/license_key';
-
-    /**
-     * "Production Environment" toggle path. When set to 0 (No), the module
-     * bypasses license validation entirely — for use on dev/staging installs
-     * with non-standard domains. Industry-standard pattern (Amasty, Aheadworks).
-     */
+    public const XML_PATH_LICENSE_KEY            = 'etechflow_nextdayeligibility/license/license_key';
     public const XML_PATH_PRODUCTION_ENVIRONMENT = 'etechflow_nextdayeligibility/license/production_environment';
+    public const XML_PATH_PORTAL_URL             = 'etechflow_nextdayeligibility/license/portal_url';
+    public const XML_PATH_PORTAL_API_URL         = 'etechflow_nextdayeligibility/license/portal_api_url';
 
-    /** Shared config path — same value across all eTechFlow modules. */
     public const XML_PATH_BUNDLE_LICENSE_KEY = 'etechflow_bundle/license/license_key';
 
     private const MODULE_ID = 'next-day-eligibility';
-
-    /** Shared bundle identifier — must match across all eTechFlow modules. */
     private const BUNDLE_ID = 'etechflow-bundle';
 
-    /** Per-module HMAC secret. Split across constants to make casual extraction harder. */
+    // PRESERVED from original v1.2.3 LicenseValidator — keeps bundle/HMAC compatibility (LICENSING_PROTOCOL.md).
     private const SECRET_FRAGMENTS = [
         'eTF-NDE-2026',
         'a8c2-fE4d',
@@ -43,7 +50,6 @@ class LicenseValidator
         'Q5xW-yH8r',
     ];
 
-    /** Shared bundle HMAC secret. MUST be identical in every eTechFlow module's LicenseValidator. */
     private const BUNDLE_SECRET_FRAGMENTS = [
         'eTF-BUNDLE-2026',
         'k2D9-mP4x',
@@ -51,53 +57,54 @@ class LicenseValidator
         'X7tY-zW5q',
     ];
 
-    /**
-     * Constructor.
-     *
-     * @param ScopeConfigInterface  $scopeConfig
-     * @param StoreManagerInterface $storeManager
-     */
+    private const CACHE_TTL_VALID  = 60; // portal said valid → cache 60s so admin IP-removal propagates within 1 minute (per PORTAL_LICENSING_GUIDE.md PORTAL_CACHE_TTL)
+    private const CACHE_TTL_REJECT = 60; // portal said NO → recheck within 1 minute so re-authorisation propagates fast
+    private const CACHE_TAG = 'etechflow_nde_license';
+
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
-        private readonly StoreManagerInterface $storeManager
+        private readonly StoreManagerInterface $storeManager,
+        private readonly CacheInterface $cache,
+        private readonly Curl $curl
     ) {
     }
 
-    /**
-     * Whether the module is licensed for the current Magento install.
-     *
-     * Returns true when:
-     *  - The current host matches a development pattern (.test, .local, localhost), OR
-     *  - The configured license_key matches the expected key for the current host.
-     *
-     * @return bool
-     */
     public function isValid(): bool
     {
         $host = $this->getCurrentHost();
-
         if ($host === '') {
             return false;
         }
 
-        // "Production Environment" toggle — when set to No, skip licensing entirely.
-        // Industry-standard pattern: customers can clone production DB to dev/staging
-        // on any domain and flip this off, without needing a separate licence key.
+        if ($this->isExplicitlyRevoked()) {
+            return false;
+        }
+
         if (!$this->isProductionEnvironment()) {
             return true;
         }
 
-        if ($this->isDevelopmentHost($host)) {
-            return true;
+        $configuredKey = $this->getConfiguredKey();
+
+        if (str_starts_with($configuredKey, 'SP-')) {
+            // Portal answer wins: explicit accept/reject is honoured immediately.
+            // The 48h local grace is only a fallback for the portal being unreachable
+            // (so a network blip doesn't black-hole live storefronts) — it MUST NOT
+            // mask an explicit reject, otherwise admin IP removal would not lock the module.
+            $portalAnswer = $this->validateViaPortal($host, $configuredKey);
+            if ($portalAnswer === true) {
+                return true;
+            }
+            if ($portalAnswer === false) {
+                return false;
+            }
+            return $this->isLocallyIssuedKey($configuredKey, $host);
         }
 
-        // Per-module key: activates this module only
-        $configuredKey = $this->getConfiguredKey();
         if ($configuredKey !== '' && hash_equals($this->computeKey($host), $configuredKey)) {
             return true;
         }
 
-        // Bundle key: a single key sold as the 3-module bundle activates all eTechFlow modules
         $bundleKey = $this->getConfiguredBundleKey();
         if ($bundleKey !== '' && hash_equals($this->computeBundleKey($host), $bundleKey)) {
             return true;
@@ -107,49 +114,98 @@ class LicenseValidator
     }
 
     /**
-     * Compute the license key for an arbitrary host. Used by both validation
-     * and the CLI key-generation tool. Host is canonicalized first so
-     * www.example.com and example.com always yield the same key.
+     * Ask the portal whether this host+key is currently authorised.
      *
-     * @param string $host
-     * @return string
+     * @return bool|null  true  = portal said valid
+     *                    false = portal explicitly rejected (200 valid:false, 401, 403)
+     *                    null  = portal unreachable / unconfigured (caller may fall back to grace)
      */
+    private function validateViaPortal(string $host, string $licenseKey): ?bool
+    {
+        $cacheKey = 'etf_nde_lic_' . md5($host . ':' . $licenseKey);
+        $cached   = $this->cache->load($cacheKey);
+        if ($cached === '1') {
+            return true;
+        }
+        if ($cached === '0') {
+            return false;
+        }
+
+        $apiBase = $this->getPortalApiBase();
+        if ($apiBase === '') {
+            return null; // no portal configured → grace fallback
+        }
+
+        $url = rtrim($apiBase, '/') . '/license/validate'
+            . '?domain='      . urlencode($this->canonicalize($host))
+            . '&license_key=' . urlencode($licenseKey)
+            . '&platform=magento'
+            . '&module='      . urlencode(self::MODULE_ID);
+
+        $status = 0;
+        $body   = '';
+        try {
+            $this->curl->setTimeout(5);
+            $this->curl->addHeader('Accept', 'application/json');
+            $this->curl->addHeader('User-Agent', 'ETechFlow-NDE/1.0');
+            $this->curl->get($url);
+            $status = (int) $this->curl->getStatus();
+            $body   = (string) $this->curl->getBody();
+        } catch (\Exception) {
+            return null; // network error → grace fallback
+        }
+
+        if ($status === 200 && $body !== '') {
+            $data  = json_decode($body, true);
+            $valid = !empty($data['valid']);
+            $this->cache->save(
+                $valid ? '1' : '0',
+                $cacheKey,
+                [self::CACHE_TAG],
+                $valid ? self::CACHE_TTL_VALID : self::CACHE_TTL_REJECT
+            );
+            return $valid;
+        }
+
+        if ($status === 401 || $status === 403) {
+            // Portal answered and said NO (e.g. IP revoked, subscription suspended, key revoked).
+            $this->cache->save('0', $cacheKey, [self::CACHE_TAG], self::CACHE_TTL_REJECT);
+            return false;
+        }
+
+        // 0 / 5xx / other → treat as unreachable, no caching.
+        return null;
+    }
+
+    private function getPortalApiBase(): string
+    {
+        $api = trim((string) $this->scopeConfig->getValue(self::XML_PATH_PORTAL_API_URL));
+        if ($api !== '') {
+            return $api;
+        }
+        $browser = trim((string) $this->scopeConfig->getValue(self::XML_PATH_PORTAL_URL));
+        if ($browser !== '' && !str_contains($browser, '127.0.0.1') && !str_contains($browser, 'localhost')) {
+            return $browser;
+        }
+        return '';
+    }
+
     public function computeKey(string $host): string
     {
         $payload = $this->canonicalize($host) . ':' . self::MODULE_ID;
         $secret  = implode('', self::SECRET_FRAGMENTS);
         $raw     = hash_hmac('sha256', $payload, $secret, true);
-
-        // URL-safe base64 without padding
         return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 
-    /**
-     * Compute the bundle license key for an arbitrary host. The same algorithm
-     * runs inside every eTechFlow module, so one bundle key activates all of them.
-     *
-     * @param string $host
-     * @return string
-     */
     public function computeBundleKey(string $host): string
     {
         $payload = $this->canonicalize($host) . ':' . self::BUNDLE_ID;
         $secret  = implode('', self::BUNDLE_SECRET_FRAGMENTS);
         $raw     = hash_hmac('sha256', $payload, $secret, true);
-
         return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 
-    /**
-     * Canonicalize a host for licensing comparison.
-     *
-     * Lowercases, trims whitespace, and strips a single leading "www." prefix.
-     * Treats www.example.com and example.com as the same site — every major
-     * module vendor (Amasty, Aheadworks, MageWorx, Mageplaza) does this.
-     *
-     * @param string $host
-     * @return string
-     */
     private function canonicalize(string $host): string
     {
         $host = strtolower(trim($host));
@@ -159,160 +215,92 @@ class LicenseValidator
         return $host;
     }
 
-    /**
-     * Read the configured license key, trimmed.
-     *
-     * @return string
-     */
     public function getConfiguredKey(): string
     {
-        $value = $this->scopeConfig->getValue(
-            self::XML_PATH_LICENSE_KEY,
-            ScopeInterface::SCOPE_STORE
-        );
-
+        $value = $this->scopeConfig->getValue(self::XML_PATH_LICENSE_KEY, ScopeInterface::SCOPE_STORE);
         return trim((string) $value);
     }
 
-    /**
-     * Read the configured bundle license key, trimmed.
-     *
-     * @return string
-     */
     public function getConfiguredBundleKey(): string
     {
-        $value = $this->scopeConfig->getValue(
-            self::XML_PATH_BUNDLE_LICENSE_KEY,
-            ScopeInterface::SCOPE_STORE
-        );
-
+        $value = $this->scopeConfig->getValue(self::XML_PATH_BUNDLE_LICENSE_KEY, ScopeInterface::SCOPE_STORE);
         return trim((string) $value);
     }
 
-    /**
-     * Whether the current store is flagged as a production environment.
-     *
-     * Defaults to TRUE if the config has never been touched — so existing
-     * customers upgrading from a previous version aren't unexpectedly licensed.
-     * A merchant must EXPLICITLY set it to "No" on dev/staging installs.
-     *
-     * @return bool
-     */
     public function isProductionEnvironment(): bool
     {
-        $value = $this->scopeConfig->getValue(
-            self::XML_PATH_PRODUCTION_ENVIRONMENT,
-            ScopeInterface::SCOPE_STORE
-        );
-
-        // Treat unset (null/empty) as Yes — safest default for upgrade compatibility.
-        // Customer must EXPLICITLY save "No" (stored as "0") to turn licensing off.
+        $value = $this->scopeConfig->getValue(self::XML_PATH_PRODUCTION_ENVIRONMENT, ScopeInterface::SCOPE_STORE);
         if ($value === null || $value === '') {
             return true;
         }
-
         return (bool) $value;
     }
 
-    /**
-     * Return the host of the current store's base URL, lowercased.
-     *
-     * @return string
-     */
     public function getCurrentHost(): string
     {
         try {
-            $url = $this->storeManager->getStore()->getBaseUrl();
+            $url  = $this->storeManager->getStore()->getBaseUrl();
             $host = parse_url($url, PHP_URL_HOST);
             return is_string($host) ? strtolower($host) : '';
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             return '';
         }
     }
 
-    /**
-     * Identify development hosts that bypass licensing.
-     *
-     * Mirrors the standard "unlimited dev/staging environments" policy used by
-     * Amasty, Aheadworks, MageWorx, Mageplaza, Magefan — a paid license is
-     * required only for production hosts.
-     *
-     * Patterns recognised:
-     *   - Loopback and RFC 1918 private network IPs (10/8, 172.16/12, 192.168/16, 127/8)
-     *   - RFC 6761 reserved TLDs (.test, .local, .localhost, .example, .invalid) and the .dev convention
-     *   - Common staging subdomain prefixes (staging., stage., dev., qa., uat., test., preview., sandbox.)
-     *   - Hyphen-staging patterns (foo-staging.com, foo-dev.com, etc.)
-     *   - Adobe Commerce Cloud staging environments (*.magento.cloud, *.magentocloud.com)
-     *   - Tunnelling services developers use (*.ngrok.io, *.ngrok-free.app, *.loca.lt, *.serveo.net)
-     *
-     * @param string $host
-     * @return bool
-     */
-    /**
-     * Public wrapper around isDevelopmentHost() so the admin status block
-     * can show whether the current host is bypassing licence checks.
-     *
-     * @param string|null $host Defaults to the canonical current store host.
-     * @return bool
-     */
     public function isDevHost(?string $host = null): bool
     {
-        $check = $host !== null ? $this->canonicalize($host) : $this->canonicalize($this->getCurrentHost());
+        $check = $host !== null ? strtolower(trim($host)) : $this->canonicalize($this->getCurrentHost());
         return $this->isDevelopmentHost($check);
     }
 
+    /**
+     * Per guide gotcha L: REMOVED the hyphen-regex that false-matched
+     * magento-dev.etechflow.com (and similar `*-dev.*` prod hosts).
+     * ADDED .ngrok-free.dev to tunnel suffixes.
+     */
     private function isDevelopmentHost(string $host): bool
     {
-        // Loopback
-        if ($host === 'localhost' || str_starts_with($host, '127.')) {
-            return true;
+        if ($host === 'localhost' || str_starts_with($host, '127.')) return true;
+        if (str_starts_with($host, '10.') || str_starts_with($host, '192.168.')) return true;
+        if (preg_match('/^172\.(1[6-9]|2[0-9]|3[01])\./', $host)) return true;
+        foreach (['.test', '.local', '.localhost', '.dev', '.example', '.invalid'] as $s) {
+            if (str_ends_with($host, $s)) return true;
         }
-
-        // RFC 1918 private IPv4 ranges
-        if (str_starts_with($host, '10.') || str_starts_with($host, '192.168.')) {
-            return true;
+        foreach (['staging.', 'stage.', 'dev.', 'qa.', 'uat.', 'test.', 'preview.', 'sandbox.'] as $p) {
+            if (str_starts_with($host, $p)) return true;
         }
-        if (preg_match('/^172\.(1[6-9]|2[0-9]|3[01])\./', $host)) {
-            return true;
+        foreach (['.magento.cloud', '.magentocloud.com', '.ngrok.io', '.ngrok-free.app', '.ngrok-free.dev', '.loca.lt'] as $s) {
+            if (str_ends_with($host, $s)) return true;
         }
-
-        // Reserved TLDs (RFC 6761) + common dev TLDs
-        $devSuffixes = ['.test', '.local', '.localhost', '.dev', '.example', '.invalid'];
-        foreach ($devSuffixes as $suffix) {
-            if (str_ends_with($host, $suffix)) {
-                return true;
-            }
-        }
-
-        // Common staging subdomain prefixes
-        $devPrefixes = ['staging.', 'stage.', 'dev.', 'qa.', 'uat.', 'test.', 'preview.', 'sandbox.'];
-        foreach ($devPrefixes as $prefix) {
-            if (str_starts_with($host, $prefix)) {
-                return true;
-            }
-        }
-
-        // Hyphen-staging patterns: my-shop-staging.com, my-shop-dev.com, etc.
-        if (preg_match('/-(staging|stage|dev|qa|uat|test|preview|sandbox)\./', $host)) {
-            return true;
-        }
-
-        // Adobe Commerce Cloud staging environments
-        $cloudSuffixes = ['.magento.cloud', '.magentocloud.com', '.cloud.magento'];
-        foreach ($cloudSuffixes as $suffix) {
-            if (str_ends_with($host, $suffix)) {
-                return true;
-            }
-        }
-
-        // Developer tunnelling services
-        $tunnelSuffixes = ['.ngrok.io', '.ngrok-free.app', '.loca.lt', '.serveo.net'];
-        foreach ($tunnelSuffixes as $suffix) {
-            if (str_ends_with($host, $suffix)) {
-                return true;
-            }
-        }
-
         return false;
+    }
+
+    private function isLocallyIssuedKey(string $key, string $host): bool
+    {
+        $issuedKey = trim((string) $this->scopeConfig->getValue('etechflow_nextdayeligibility/license/issued_key'));
+        if ($issuedKey === '' || !hash_equals($issuedKey, $key)) {
+            return false;
+        }
+        $issuedDomain = trim((string) $this->scopeConfig->getValue('etechflow_nextdayeligibility/license/issued_domain'));
+        if ($issuedDomain === '' || $this->canonicalize($issuedDomain) !== $this->canonicalize($host)) {
+            return false;
+        }
+        $sessionId = trim((string) $this->scopeConfig->getValue('etechflow_nextdayeligibility/license/stripe_session_id'));
+        if ($sessionId === '') {
+            return false;
+        }
+        $issuedAt = (int) $this->scopeConfig->getValue('etechflow_nextdayeligibility/license/issued_at');
+        if ($issuedAt === 0) {
+            return false;
+        }
+        return (time() - $issuedAt) < 172800; // 48-hour grace
+    }
+
+    private function isExplicitlyRevoked(): bool
+    {
+        return (string) $this->scopeConfig->getValue(
+            'etechflow_nextdayeligibility/license/revoked',
+            ScopeInterface::SCOPE_STORE
+        ) === '1';
     }
 }

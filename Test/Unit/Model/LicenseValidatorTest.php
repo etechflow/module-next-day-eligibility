@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace ETechFlow\NextDayEligibility\Test\Unit\Model;
 
 use ETechFlow\NextDayEligibility\Model\LicenseValidator;
+use Magento\Framework\App\CacheInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\HTTP\Client\Curl;
 use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -19,6 +21,12 @@ class LicenseValidatorTest extends TestCase
     /** @var StoreManagerInterface|MockObject */
     private StoreManagerInterface|MockObject $storeManager;
 
+    /** @var CacheInterface|MockObject */
+    private CacheInterface|MockObject $cache;
+
+    /** @var Curl|MockObject */
+    private Curl|MockObject $curl;
+
     /** @var LicenseValidator */
     private LicenseValidator $validator;
 
@@ -26,7 +34,16 @@ class LicenseValidatorTest extends TestCase
     {
         $this->scopeConfig  = $this->createMock(ScopeConfigInterface::class);
         $this->storeManager = $this->createMock(StoreManagerInterface::class);
-        $this->validator    = new LicenseValidator($this->scopeConfig, $this->storeManager);
+        $this->cache        = $this->createMock(CacheInterface::class);
+        $this->curl         = $this->createMock(Curl::class);
+        // Cache miss by default so portal validation falls through to the curl mock
+        $this->cache->method('load')->willReturn(false);
+        $this->validator    = new LicenseValidator(
+            $this->scopeConfig,
+            $this->storeManager,
+            $this->cache,
+            $this->curl
+        );
     }
 
     private function setHost(string $host, string $protocol = 'https'): void
@@ -236,13 +253,11 @@ class LicenseValidatorTest extends TestCase
             'test. subdomain'            => ['test.coolstore.com'],
             'preview. subdomain'         => ['preview.coolstore.com'],
             'sandbox. subdomain'         => ['sandbox.coolstore.com'],
-            'hyphen-staging in apex'     => ['coolstore-staging.com'],
-            'hyphen-dev in apex'         => ['coolstore-dev.com'],
-            'hyphen-uat in apex'         => ['coolstore-uat.com'],
             'Adobe Cloud magento.cloud'  => ['coolstore.magento.cloud'],
             'Adobe Cloud magentocloud'   => ['coolstore.magentocloud.com'],
             'ngrok.io tunnel'            => ['abc123.ngrok.io'],
             'ngrok-free.app tunnel'      => ['abc123.ngrok-free.app'],
+            'ngrok-free.dev tunnel'      => ['abc123.ngrok-free.dev'],
             'loca.lt tunnel'             => ['mystore.loca.lt'],
         ];
     }
@@ -307,9 +322,17 @@ class LicenseValidatorTest extends TestCase
         ];
 
         foreach ($productionHosts as $host) {
-            $this->scopeConfig = $this->createMock(ScopeConfigInterface::class);
+            $this->scopeConfig  = $this->createMock(ScopeConfigInterface::class);
             $this->storeManager = $this->createMock(StoreManagerInterface::class);
-            $this->validator    = new LicenseValidator($this->scopeConfig, $this->storeManager);
+            $this->cache        = $this->createMock(CacheInterface::class);
+            $this->curl         = $this->createMock(Curl::class);
+            $this->cache->method('load')->willReturn(false);
+            $this->validator    = new LicenseValidator(
+                $this->scopeConfig,
+                $this->storeManager,
+                $this->cache,
+                $this->curl
+            );
 
             $this->setHost($host);
             $this->scopeConfig->method('getValue')->willReturn('');

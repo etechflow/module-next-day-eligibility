@@ -28,47 +28,75 @@
                 <frontend_model>ETechFlow\NextDayEligibility\Block\Adminhtml\System\Config\ModuleStatus</frontend_model>
             </group>
 
-            <group id="license"
-                   translate="label"
-                   type="text"
-                   sortOrder="5"
-                   showInDefault="1"
-                   showInWebsite="0"
-                   showInStore="0">
+            <group id="license" translate="label" type="text" sortOrder="5"
+                   showInDefault="1" showInWebsite="0" showInStore="0">
                 <label>License</label>
-                <field id="production_environment"
-                       translate="label comment tooltip"
-                       type="select"
-                       sortOrder="5"
-                       showInDefault="1"
-                       showInWebsite="0"
-                       showInStore="0">
+
+                <field id="production_environment" translate="label comment" type="select"
+                       sortOrder="5" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Production Environment</label>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    <tooltip>Yes for live sites, No for dev/staging on non-standard domains.</tooltip>
                     <comment><![CDATA[
-                        <strong>Yes</strong> = this is your live site. The module checks the licence
-                        key against the current domain. If invalid, the module silently disables itself.<br/>
-                        <strong>No</strong> = this is dev/staging. The module runs at full features
-                        without a licence — use this on non-standard dev domains the auto-detector misses.<br/>
-                        Default: Yes.
+                        <strong>Yes</strong> = live site. License key required.<br/>
+                        <strong>No</strong> = dev/staging. Module runs without a key.
                     ]]></comment>
                 </field>
-                <field id="license_key"
-                       translate="label comment tooltip"
-                       type="text"
-                       sortOrder="10"
-                       showInDefault="1"
-                       showInWebsite="0"
-                       showInStore="0">
+
+                <field id="license_key" translate="label comment" type="text"
+                       sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>License Key</label>
-                    <tooltip>Paste your purchase-email key here. Bound to the production domain.</tooltip>
                     <comment><![CDATA[
-                        Paste the key from your purchase email. Tied to your live website's address.<br/>
-                        Test or staging sites don't need a key — the module detects them automatically.<br/>
-                        <code>www.</code> doesn't matter — one key works whether your address is
-                        <code>shop.com</code> or <code>www.shop.com</code>.
+                        Auto-populated after Stripe purchase. Format: <code>SP-XXXX-XXXX-XXXX-XXXX</code>.<br/>
+                        Bound to your domain. <code>www.</code> prefix normalised — one key works for both.
                     ]]></comment>
+                </field>
+
+                <field id="portal_url" translate="label comment" type="text"
+                       sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>License Portal URL</label>
+                    <comment><![CDATA[
+                        URL of the eTechFlow license portal. Called by the Magento server to validate
+                        SP-XXXX keys and complete Stripe activation.<br/>
+                        Example: <code>https://your-tunnel.ngrok-free.dev</code> or your production portal URL.
+                    ]]></comment>
+                </field>
+
+                <field id="portal_api_url" translate="label comment" type="text"
+                       sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>License Validation API URL (optional override)</label>
+                    <comment><![CDATA[
+                        Optional override for the server-to-server validation URL.
+                        If blank, the Portal URL above is used.
+                    ]]></comment>
+                </field>
+            </group>
+
+            <group id="payment" translate="label" type="text" sortOrder="7"
+                   showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Payment (Stripe)</label>
+                <comment>Add your Stripe REST API credentials to enable "Select Plan &amp; Pay" on the gate page. Get them at https://dashboard.stripe.com/test/apikeys.</comment>
+
+                <field id="stripe_secret_key" translate="label" type="obscure"
+                       sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Stripe Secret Key</label>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <comment><![CDATA[
+                        <code>sk_test_...</code> or <code>sk_live_...</code>. Stored encrypted by Magento.
+                    ]]></comment>
+                </field>
+
+                <field id="stripe_publishable_key" translate="label" type="text"
+                       sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Stripe Publishable Key</label>
+                    <comment><![CDATA[
+                        <code>pk_test_...</code> or <code>pk_live_...</code>. Public — safe to display.
+                    ]]></comment>
+                </field>
+
+                <field id="stripe_currency" translate="label" type="text"
+                       sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Currency</label>
+                    <comment><![CDATA[Three-letter Stripe currency code, lowercase. Default: <code>usd</code>.]]></comment>
                 </field>
             </group>
 
