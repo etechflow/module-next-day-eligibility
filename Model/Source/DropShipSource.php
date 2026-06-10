@@ -32,6 +32,10 @@ class DropShipSource implements OptionSourceInterface
                 'value' => Config::DROP_SHIP_SOURCE_SUPPLIER,
                 'label' => __('Supplier-based — reads supplier attributes (with manual flag as override)'),
             ],
+            [
+                'value' => Config::DROP_SHIP_SOURCE_SUPPLIER_DENYLIST,
+                'label' => __('Supplier denylist - every supplier ships next-day except a blocked list (with manual flag as override)'),
+            ],
         ];
     }
 }

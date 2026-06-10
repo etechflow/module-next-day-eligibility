@@ -4,6 +4,53 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
+## [1.9.0] — 2026-06-10 — Supplier denylist mode + misconfig guardrails
+
+Adds an inverse "denylist" supplier mode (treat everyone as drop-ship eligible
+except a named few), turns the previously-silent supplier-mode misconfiguration
+into a visible admin banner, and auto-recomputes eligibility when the config is
+saved so changes no longer require a manual resync.
+
+### Added
+
+- **Supplier denylist mode** — new *Drop-Ship Source* option
+  **"Supplier denylist — every supplier ships next-day except a blocked list"**.
+  In this mode every product is next-day eligible (even at zero local stock)
+  EXCEPT products whose supplier is on a blocked list; blocked suppliers fall
+  back to real local stock (in stock = eligible, out of stock = not). The
+  mirror image of the existing whitelist (*Qualifying Supplier Names*) mode —
+  use whichever needs the shorter list and matches how you add suppliers.
+  - `Config::DROP_SHIP_SOURCE_SUPPLIER_DENYLIST` + `getBlockedSupplierNames()`.
+  - New **Blocked Supplier Names** config field
+    (`etechflow_nextdayeligibility/drop_ship/blocked_suppliers`), shown in
+    denylist mode. Matching is case-insensitive and ignores ALL whitespace, so
+    e.g. `Window Parts` also matches `Windowparts`.
+  - `SupplierDropShipResolver::isSupplierBlocked()` mirrors `isDropShipEligible()`
+    against the blocked set; new precedence branch (3a) in `EligibilityEvaluator`.
+- **Supplier-mode misconfig banner** (`Model/AdminNotice/SupplierModeMisconfigNotice`) —
+  persistent admin header banner, same pattern as the v1.6.2 shipping-method
+  mismatch notice. Fires when a supplier mode is selected but a required input
+  is missing — most importantly when **Supplier Attribute Pairs** is empty, in
+  which case the resolver has no product field to read and the whole supplier
+  list silently does nothing. Names exactly what's missing and where to fix it.
+  Healthy / non-supplier configs get no nag.
+- **Auto-resync on config save** (`Observer/RecomputeOnConfigChange`, bound to
+  `admin_system_config_changed_section_etechflow_nextdayeligibility`). Eligibility
+  is a stored attribute, so rule changes previously needed a manual
+  `etechflow:nde:resync`. Now saving the NDE config recomputes the catalogue:
+  - A pending-resync flag is set immediately; the hourly cron honours it with a
+    **full, uncapped** pass (the normal scan is capped at `PROCESS_LIMIT` and
+    would never reach a large catalogue's tail) and clears it.
+  - On php-fpm, the resync also runs right after the admin response is flushed
+    (`fastcgi_finish_request`) so it applies within seconds without a spinner.
+
+### Notes
+
+- No schema or data changes — `setup_version` is unchanged; no `setup:upgrade`
+  required.
+
+---
+
 ## [1.8.0] — 2026-06-03 — Stripe portal licensing + admin gate page
 
 Adds Stripe Checkout subscription flow gated by the eTechFlow licensing

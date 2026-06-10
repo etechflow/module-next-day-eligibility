@@ -124,7 +124,21 @@ class EligibilityEvaluator
         // admin has switched the Drop-Ship Source mode to supplier — the
         // resolver itself also returns false fast if no pairs or qualifying
         // names are configured, so this is cheap when off.
-        if ($this->config->getDropShipSource() === Config::DROP_SHIP_SOURCE_SUPPLIER
+        $source = $this->config->getDropShipSource();
+
+        // Precedence 3a: supplier DENYLIST mode (v1.7.x). Every product is
+        // treated as drop-ship eligible (next-day even at zero local stock)
+        // EXCEPT those whose supplier is on the blocked list, which fall back
+        // to real local stock state.
+        if ($source === Config::DROP_SHIP_SOURCE_SUPPLIER_DENYLIST) {
+            if ($this->supplierResolver->isSupplierBlocked($productId)) {
+                return $stockItem->getIsInStock() && (float) $stockItem->getQty() > 0;
+            }
+            return true;
+        }
+
+        // Precedence 3b: supplier whitelist detection (v1.5+).
+        if ($source === Config::DROP_SHIP_SOURCE_SUPPLIER
             && $this->supplierResolver->isDropShipEligible($productId)
         ) {
             return true;

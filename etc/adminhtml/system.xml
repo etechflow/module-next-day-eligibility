@@ -443,7 +443,7 @@
                        showInStore="1">
                     <label>Supplier Attribute Pairs</label>
                     <depends>
-                        <field id="source">supplier</field>
+                        <field id="source" separator=",">supplier,supplier_denylist</field>
                     </depends>
                     <tooltip>Tell the module which product attributes hold supplier info. One line per supplier slot. Format: tickbox-attribute:name-attribute</tooltip>
                     <comment><![CDATA[
@@ -494,6 +494,30 @@ FastFreight Inc.</pre>
                         <br/><br/>
                         Leave empty and supplier mode does nothing — products fall back to the
                         manual <em>Drop-Ship Eligible</em> tickbox.
+                    ]]></comment>
+                </field>
+                <field id="blocked_suppliers"
+                       translate="label comment tooltip"
+                       type="textarea"
+                       sortOrder="45"
+                       showInDefault="1"
+                       showInWebsite="1"
+                       showInStore="1">
+                    <label>Blocked Supplier Names (no next-day at zero stock)</label>
+                    <backend_model>ETechFlow\NextDayEligibility\Model\Config\Backend\QualifyingSuppliers</backend_model>
+                    <depends>
+                        <field id="source">supplier_denylist</field>
+                    </depends>
+                    <tooltip>Used by Supplier denylist mode. List the suppliers that do NOT ship next-day. One per line. Capitalisation and spacing do not matter.</tooltip>
+                    <comment><![CDATA[
+                        <strong>Supplier denylist mode only.</strong> In this mode every product
+                        is treated as next-day eligible (even at zero local stock) EXCEPT products
+                        whose supplier is listed here. Blocked suppliers fall back to real local
+                        stock: in stock = eligible, out of stock = not eligible.
+                        <br/><br/>
+                        One supplier name per line. Matching is case-insensitive and ignores all
+                        whitespace, so <code>Window Parts</code> also matches <code>Windowparts</code>.
+                        Lines starting with <code>#</code> are ignored.
                     ]]></comment>
                 </field>
                 <field id="supplier_match_mode"

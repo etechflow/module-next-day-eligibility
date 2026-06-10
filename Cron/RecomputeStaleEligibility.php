@@ -12,6 +12,8 @@ use Magento\Eav\Model\Config as EavConfig;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Store\Model\Store;
 use Psr\Log\LoggerInterface;
+use Magento\Framework\FlagManager;
+use ETechFlow\NextDayEligibility\Observer\RecomputeOnConfigChange;
 
 /**
  * Hourly safety-net cron that detects + repairs stale next_day_eligible rows (v1.6.0).
@@ -57,6 +59,7 @@ class RecomputeStaleEligibility
         private readonly ProductCollectionFactory $productCollectionFactory,
         private readonly ResourceConnection $resourceConnection,
         private readonly EavConfig $eavConfig,
+        private readonly FlagManager $flagManager,
         private readonly LoggerInterface $logger
     ) {
     }
@@ -64,6 +67,16 @@ class RecomputeStaleEligibility
     public function execute(): void
     {
         if (!$this->config->isEnabled()) {
+            return;
+        }
+
+        // v1.8.0: a saved config change requested a FULL catalogue resync.
+        // The capped scan below only covers PROCESS_LIMIT products, so on a
+        // large catalogue it would never reach the tail. Honour the flag with
+        // an uncapped pass, then clear it.
+        if ($this->flagManager->getFlagData(RecomputeOnConfigChange::FLAG_RESYNC_PENDING)) {
+            $this->runFullResync();
+            $this->flagManager->deleteFlag(RecomputeOnConfigChange::FLAG_RESYNC_PENDING);
             return;
         }
 
@@ -96,6 +109,41 @@ class RecomputeStaleEligibility
         $elapsed = number_format(microtime(true) - $start, 2);
         $this->logger->info(
             "ETechFlow_NextDayEligibility: Cron resync done — {$count} products evaluated, {$errors} errors, {$elapsed}s."
+        );
+    }
+
+    /**
+     * Full, uncapped re-evaluation of every simple product. Used only when a
+     * saved config change set the pending flag (the hourly scan is capped at
+     * PROCESS_LIMIT and would never reach a large catalogue's tail).
+     *
+     * @return void
+     */
+    private function runFullResync(): void
+    {
+        $start = microtime(true);
+        $collection = $this->productCollectionFactory->create();
+        $collection->addAttributeToFilter('type_id', 'simple');
+        $ids = $collection->getAllIds();
+
+        $count = 0;
+        $errors = 0;
+        foreach ($ids as $id) {
+            try {
+                $this->evaluator->evaluateById((int) $id);
+                $count++;
+            } catch (\Throwable $e) {
+                $errors++;
+                $this->logger->warning(
+                    'ETechFlow_NextDayEligibility: config-change resync failed for one product.',
+                    ['product_id' => $id, 'exception' => $e->getMessage()]
+                );
+            }
+        }
+
+        $elapsed = number_format(microtime(true) - $start, 2);
+        $this->logger->info(
+            "ETechFlow_NextDayEligibility: config-change full resync done - {$count} products, {$errors} errors, {$elapsed}s."
         );
     }
 

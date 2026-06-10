@@ -22,11 +22,14 @@ class Config
     private const XML_PATH_DROP_SHIP_SOURCE       = 'etechflow_nextdayeligibility/drop_ship/source';
     private const XML_PATH_SUPPLIER_PAIRS         = 'etechflow_nextdayeligibility/drop_ship/supplier_pairs';
     private const XML_PATH_SUPPLIER_QUALIFYING    = 'etechflow_nextdayeligibility/drop_ship/qualifying_suppliers';
+    private const XML_PATH_SUPPLIER_BLOCKED       = 'etechflow_nextdayeligibility/drop_ship/blocked_suppliers';
     private const XML_PATH_SUPPLIER_MATCH_MODE    = 'etechflow_nextdayeligibility/drop_ship/supplier_match_mode';
     private const XML_PATH_BADGE_VISIBILITY = 'etechflow_nextdayeligibility/general/badge_visibility';
 
     public const DROP_SHIP_SOURCE_FLAG     = 'flag';
     public const DROP_SHIP_SOURCE_SUPPLIER = 'supplier';
+    /** v1.7.x: every supplier ships next-day EXCEPT a blocked denylist. */
+    public const DROP_SHIP_SOURCE_SUPPLIER_DENYLIST = 'supplier_denylist';
 
     /**
      * Supplier match modes (v1.6.3+).
@@ -283,6 +286,9 @@ class Config
             $storeId
         );
         $value = is_string($value) ? trim($value) : '';
+        if ($value === self::DROP_SHIP_SOURCE_SUPPLIER_DENYLIST) {
+            return self::DROP_SHIP_SOURCE_SUPPLIER_DENYLIST;
+        }
         return $value === self::DROP_SHIP_SOURCE_SUPPLIER
             ? self::DROP_SHIP_SOURCE_SUPPLIER
             : self::DROP_SHIP_SOURCE_FLAG;
@@ -367,6 +373,36 @@ class Config
     {
         $raw = (string) $this->scopeConfig->getValue(
             self::XML_PATH_SUPPLIER_QUALIFYING,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        );
+        if ($raw === '') {
+            return [];
+        }
+
+        $names = [];
+        foreach (preg_split('/\R/', $raw) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            $names[] = $line;
+        }
+        return $names;
+    }
+
+    /**
+     * Supplier names BLOCKED from next-day at zero local stock (denylist mode).
+     * Case-insensitive; ALL whitespace ignored so 'Window Parts' and
+     * 'Windowparts' collapse to one entry. Empty = nothing blocked.
+     *
+     * @param int|null $storeId
+     * @return string[]
+     */
+    public function getBlockedSupplierNames(?int $storeId = null): array
+    {
+        $raw = (string) $this->scopeConfig->getValue(
+            self::XML_PATH_SUPPLIER_BLOCKED,
             ScopeInterface::SCOPE_STORE,
             $storeId
         );
