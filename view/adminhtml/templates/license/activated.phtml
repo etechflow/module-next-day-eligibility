@@ -38,7 +38,7 @@ $managementUrl= $block->escapeUrl($block->getManagementUrl());
 <div class="etf-success">
     <div class="check">&#10003;</div>
     <h1>License Activated</h1>
-    <p class="sub">Payment received via Stripe. Next Day Eligibility is now unlocked<?php if ($plan !== ''): ?> on the <strong><?= $plan ?></strong> plan<?php endif; ?>.</p>
+    <p class="sub">Payment received. Next Day Eligibility is now unlocked<?php if ($plan !== ''): ?> on the <strong><?= $plan ?></strong> plan<?php endif; ?>.</p>
 
     <div class="keybox" id="etf-key"><?= $licenseKey ?></div>
     <button class="copy" onclick="etfCopyKey(this)">Copy License Key</button>
