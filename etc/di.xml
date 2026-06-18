@@ -39,6 +39,8 @@
             <argument name="messages" xsi:type="array">
                 <item name="etechflow_nde_method_mismatch"
                       xsi:type="string">ETechFlow\NextDayEligibility\Model\AdminNotice\ShippingMethodMismatchNotice</item>
+                <item name="etechflow_nde_supplier_misconfig"
+                      xsi:type="string">ETechFlow\NextDayEligibility\Model\AdminNotice\SupplierModeMisconfigNotice</item>
             </argument>
         </arguments>
     </type>

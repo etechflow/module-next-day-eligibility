@@ -148,6 +148,92 @@ class SupplierDropShipResolver
     }
 
     /**
+     * Denylist check (v1.7.x): is the product's supplier on the blocked list?
+     *
+     * Used by the 'supplier denylist' drop-ship mode. Mirrors the attribute
+     * walking + name resolution of isDropShipEligible(), but tests membership
+     * against the BLOCKED set and short-circuits true on the first active slot
+     * whose resolved supplier name is blocked. Name matching is case-insensitive
+     * and ignores all whitespace (so 'Window Parts' == 'Windowparts').
+     *
+     * @param int      $productId
+     * @param int|null $storeId
+     * @return bool
+     */
+    public function isSupplierBlocked(int $productId, ?int $storeId = null): bool
+    {
+        $cacheKey = 'blocked:' . $productId . ':' . ($storeId ?? '_');
+        if (isset($this->cache[$cacheKey])) {
+            return $this->cache[$cacheKey];
+        }
+
+        $pairs   = $this->config->getSupplierAttributePairs($storeId);
+        $blocked = $this->config->getBlockedSupplierNames($storeId);
+
+        if (empty($pairs) || empty($blocked)) {
+            return $this->cache[$cacheKey] = false;
+        }
+
+        $blockedSet = [];
+        foreach ($blocked as $name) {
+            $key = $this->normaliseSupplierName($name);
+            if ($key !== '') {
+                $blockedSet[$key] = true;
+            }
+        }
+        if (empty($blockedSet)) {
+            return $this->cache[$cacheKey] = false;
+        }
+
+        $attrCodes = [];
+        foreach ($pairs as $pair) {
+            $attrCodes[$pair['active']] = true;
+            $attrCodes[$pair['name']]   = true;
+        }
+
+        try {
+            $product = $this->loadProduct($productId, array_keys($attrCodes));
+        } catch (\Throwable $e) {
+            $this->logger->warning(
+                'ETechFlow_NextDayEligibility: supplier resolver failed to load product for denylist check; treating as not blocked.',
+                ['product_id' => $productId, 'exception' => $e->getMessage()]
+            );
+            return $this->cache[$cacheKey] = false;
+        }
+
+        if ($product === null) {
+            return $this->cache[$cacheKey] = false;
+        }
+
+        foreach ($pairs as $pair) {
+            if (!$product->getData($pair['active'])) {
+                continue;
+            }
+            foreach ($this->resolveSupplierNames($product, $pair['name'], $productId) as $candidate) {
+                $key = $this->normaliseSupplierName($candidate);
+                if ($key !== '' && isset($blockedSet[$key])) {
+                    return $this->cache[$cacheKey] = true;
+                }
+            }
+        }
+
+        return $this->cache[$cacheKey] = false;
+    }
+
+    /**
+     * Normalise a supplier name for denylist comparison: lower-case, trimmed,
+     * and with ALL internal whitespace removed so spacing/casing variants of
+     * the same supplier collapse together.
+     *
+     * @param string $name
+     * @return string
+     */
+    private function normaliseSupplierName(string $name): string
+    {
+        return preg_replace('/\s+/', '', strtolower(trim($name))) ?? '';
+    }
+
+    /**
      * Resolve a name-attribute's value into one or more candidate supplier names.
      *
      * Handles three attribute shapes (v1.6.3):

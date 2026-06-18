@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!--
+    v1.8.0: when the merchant saves the Next Day Eligibility config section,
+    recompute next_day_eligible across the catalogue so the new rules apply
+    immediately instead of waiting for a manual `etechflow:nde:resync`.
+
+    Admin-area only (config is saved from the admin), so this lives in
+    etc/adminhtml/events.xml rather than the global etc/events.xml.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <event name="admin_system_config_changed_section_etechflow_nextdayeligibility">
+        <observer name="etechflow_nextday_recompute_on_config_change"
+                  instance="ETechFlow\NextDayEligibility\Observer\RecomputeOnConfigChange" />
+    </event>
+</config>

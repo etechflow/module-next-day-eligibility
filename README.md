@@ -17,6 +17,7 @@ Stock-aware. Drop-ship aware. Hyvä compatible. Works with Magento Open Source a
 
 The version-by-version history lives in `CHANGELOG.md`. Highlights of the most recent releases:
 
+- **v1.9.0** — **Supplier denylist mode**: the mirror image of the qualifying-supplier whitelist — treat every supplier as next-day eligible *except* a named few (handy when only a handful of suppliers can't ship next-day). Plus two guardrails: a red admin banner when a supplier mode is enabled but its field mapping/list is missing (previously a silent no-op), and **auto-resync on config save** so rule changes apply without a manual `etechflow:nde:resync`.
 - **v1.4.0** — New per-product `Force Standard Shipping Only` flag. Tick it on the product edit page (under *eTechFlow Shipping*) to hard-disable next-day shipping for that product regardless of stock state. For bulky / hazmat / fragile / made-to-order items. Ships with a CLI verification command: `bin/magento etechflow:nde:verify --sku=<sku>` runs an end-to-end check that the observer + evaluator pipeline is wired correctly.
 - **v1.3.0** — Module status banner at the top of admin config (shows whether the module is actually active), PDP badge visibility toggle, drop-ship grid filter, inline tooltips on every field.
 - **v1.2.0** — Shipping method fields are now multi-select dropdowns auto-populated from your active shipping methods — merchants no longer need to know technical codes.

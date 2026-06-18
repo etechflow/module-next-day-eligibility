@@ -30,6 +30,7 @@
                 <source>flag</source>
                 <supplier_pairs></supplier_pairs>
                 <qualifying_suppliers></qualifying_suppliers>
+                <blocked_suppliers></blocked_suppliers>
                 <supplier_match_mode>first_active_wins</supplier_match_mode>
             </drop_ship>
             <notice>
