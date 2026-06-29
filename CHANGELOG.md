@@ -4,6 +4,52 @@ All notable changes to this module. Adheres to [Semantic Versioning](https://sem
 
 ---
 
+## [1.9.0] — 2026-06-29 — Supplier deny-list mode + explainer parity
+
+Adds a third **Drop-Ship Source** mode — **Supplier deny-list** — the inverse
+of the existing supplier allow-list. Where allow-list mode marks a product
+eligible only when its supplier is *on* a qualifying list, deny-list mode marks
+*every* product eligible **except** those whose supplier is on a deny list **and**
+which are out of stock. Products with no supplier, a supplier not on the list, or
+any in-stock product stay eligible. This models the common "almost everything
+ships next-day except a handful of slow suppliers" catalogue without having to
+enumerate every fast supplier.
+
+Fully store-agnostic: supplier names are admin config only — no code, no
+hardcoded vendor names.
+
+### Added
+
+- **Drop-Ship Source → "Supplier deny-list"** option, with a new
+  **Deny-List Supplier Names** textarea field (one supplier per line,
+  case-insensitive, `#` comments allowed). Shown only when deny-list mode is
+  selected.
+- `Config::DROP_SHIP_SOURCE_DENYLIST` constant + `getDenylistSupplierNames()`.
+- `SupplierDropShipResolver::isDenylisted()` — reuses the existing
+  pair-walking + supplier-match-mode logic (first-active-wins / any-active)
+  against the deny list, via a shared `matchesSupplierSet()` core.
+- Evaluator precedence 3b: deny-list resolution sits alongside the existing
+  supplier allow-list branch; both honour the manual flags above them.
+
+### Fixed
+
+- **Admin eligibility "explainer" panel** now mirrors `EligibilityEvaluator`
+  exactly in every mode. Previously it: (a) ignored `Force Standard Shipping
+  Only`; (b) used `in stock OR backorders` instead of the evaluator's
+  `in stock AND qty > 0`; and (c) in supplier mode reported "not eligible" when
+  a non-qualifying supplier still qualified via the stock fallback. The panel
+  could therefore disagree with the live badge. It is now mode-aware (flag /
+  allow-list / deny-list) and matches the stored attribute.
+
+### Compatibility
+
+- Backward compatible. Existing `flag` and `supplier` installs are unaffected;
+  deny-list mode is opt-in via the Drop-Ship Source dropdown. No schema changes;
+  no data patch required. Run `bin/magento etechflow:nde:resync` after switching
+  modes to recompute stored eligibility across the catalogue.
+
+---
+
 ## [1.8.0] — 2026-06-03 — Stripe portal licensing + admin gate page
 
 Adds Stripe Checkout subscription flow gated by the eTechFlow licensing

@@ -459,6 +459,34 @@ FastFreight Inc.</pre>
                         manual <em>Drop-Ship Eligible</em> tickbox.
                     ]]></comment>
                 </field>
+                <field id="denylist_suppliers"
+                       translate="label comment tooltip"
+                       type="textarea"
+                       sortOrder="45"
+                       showInDefault="1"
+                       showInWebsite="1"
+                       showInStore="1">
+                    <label>Deny-List Supplier Names</label>
+                    <depends>
+                        <field id="source">supplier_denylist</field>
+                    </depends>
+                    <tooltip>List the supplier names that CANNOT ship next-day. One per line. Everything else is eligible. Capitalisation doesn't matter.</tooltip>
+                    <comment><![CDATA[
+                        Deny-list mode flips the logic: <strong>every</strong> product is next-day
+                        eligible EXCEPT those sourced from a supplier listed here that is also
+                        out of stock. A listed supplier <em>with</em> stock is still eligible
+                        (ships from own stock); products with no supplier, or a supplier not on
+                        this list, are always eligible.
+                        <br/><br/>
+                        <strong>Example</strong> — if "Slowsupplier" and "Backorder Co" can't
+                        ship next-day:
+                        <pre style="margin:4px 0">Slowsupplier
+Backorder Co</pre>
+                        Match is case-insensitive and ignores extra spaces.
+                        <br/><br/>
+                        Leave empty and nothing is denied — every product is next-day eligible.
+                    ]]></comment>
+                </field>
                 <field id="supplier_match_mode"
                        translate="label comment tooltip"
                        type="select"
