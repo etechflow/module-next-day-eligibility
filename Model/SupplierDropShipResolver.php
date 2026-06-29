@@ -59,21 +59,61 @@ class SupplierDropShipResolver
      */
     public function isDropShipEligible(int $productId, ?int $storeId = null): bool
     {
-        $cacheKey = $productId . ':' . ($storeId ?? '_');
+        return $this->matchesSupplierSet(
+            $productId,
+            $this->config->getQualifyingSupplierNames($storeId),
+            $storeId,
+            'qual'
+        );
+    }
+
+    /**
+     * Deny-list counterpart: does this product's (shipping) supplier appear on
+     * the configured deny list? Uses the SAME pair-walking + match-mode logic
+     * as isDropShipEligible, just against the deny-list names. Powers deny-list
+     * mode in EligibilityEvaluator.
+     *
+     * @param int      $productId
+     * @param int|null $storeId
+     * @return bool true if the supplier is denylisted
+     */
+    public function isDenylisted(int $productId, ?int $storeId = null): bool
+    {
+        return $this->matchesSupplierSet(
+            $productId,
+            $this->config->getDenylistSupplierNames($storeId),
+            $storeId,
+            'deny'
+        );
+    }
+
+    /**
+     * Shared core: walk the configured supplier-attribute pairs and decide
+     * whether the product's supplier matches the given name set, honouring the
+     * supplier-match mode (first-active-wins vs any-active-qualifying).
+     *
+     * @param int      $productId
+     * @param string[] $names    Names to match against (qualifying OR deny list).
+     * @param int|null $storeId
+     * @param string   $cacheTag Disambiguates memo entries between callers.
+     * @return bool
+     */
+    private function matchesSupplierSet(int $productId, array $names, ?int $storeId, string $cacheTag): bool
+    {
+        $cacheKey = $cacheTag . ':' . $productId . ':' . ($storeId ?? '_');
         if (isset($this->cache[$cacheKey])) {
             return $this->cache[$cacheKey];
         }
 
         $pairs = $this->config->getSupplierAttributePairs($storeId);
-        $qualifying = $this->config->getQualifyingSupplierNames($storeId);
 
-        if (empty($pairs) || empty($qualifying)) {
+        if (empty($pairs) || empty($names)) {
             return $this->cache[$cacheKey] = false;
         }
 
         // Build a case-insensitive set so the membership check is O(1) per pair.
         $qualifyingSet = [];
-        foreach ($qualifying as $name) {
+        foreach ($names as $name) {
             $qualifyingSet[strtolower(trim($name))] = true;
         }
 

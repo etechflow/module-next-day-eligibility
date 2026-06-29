@@ -17,6 +17,7 @@ Stock-aware. Drop-ship aware. Hyvä compatible. Works with Magento Open Source a
 
 The version-by-version history lives in `CHANGELOG.md`. Highlights of the most recent releases:
 
+- **v1.9.0** — New **Supplier deny-list** drop-ship mode. The inverse of supplier allow-list: *every* product is next-day eligible **except** those from a listed (slow) supplier that are also out of stock. Products with no supplier — or a supplier not on the deny list — stay eligible regardless of stock. Ideal when "almost everything ships next-day except a handful of suppliers." Configure under *Drop-Ship Exception → Drop-Ship Source → Supplier deny-list* + the new *Deny-List Supplier Names* field. Fully store-agnostic — supplier names are pure config, no code changes. Also fixes the admin eligibility "explainer" panel so it mirrors the evaluator exactly across all modes.
 - **v1.4.0** — New per-product `Force Standard Shipping Only` flag. Tick it on the product edit page (under *eTechFlow Shipping*) to hard-disable next-day shipping for that product regardless of stock state. For bulky / hazmat / fragile / made-to-order items. Ships with a CLI verification command: `bin/magento etechflow:nde:verify --sku=<sku>` runs an end-to-end check that the observer + evaluator pipeline is wired correctly.
 - **v1.3.0** — Module status banner at the top of admin config (shows whether the module is actually active), PDP badge visibility toggle, drop-ship grid filter, inline tooltips on every field.
 - **v1.2.0** — Shipping method fields are now multi-select dropdowns auto-populated from your active shipping methods — merchants no longer need to know technical codes.
@@ -137,9 +138,23 @@ Precedence inside the eligibility evaluator:
 
 1. `Force Standard Shipping Only = Yes` → always ineligible (merchant override wins)
 2. `Drop-Ship Eligible = Yes` → always eligible
-3. Otherwise: stock check (`qty > 0 AND in stock` → eligible)
+3. **Drop-Ship Source** mode (configured under *Drop-Ship Exception*):
+   - **Manual flag only** (default) → no supplier logic; go straight to the stock check below.
+   - **Supplier allow-list** → product's supplier is on the *Qualifying Supplier Names* list → eligible.
+   - **Supplier deny-list** *(new in v1.9.0)* → product's supplier is on the *Deny-List Supplier Names* list **and** out of stock → ineligible; everything else (other suppliers, no supplier, or in-stock) → eligible.
+4. Otherwise: stock check (`qty > 0 AND in stock` → eligible)
 
-Both flags work as Magento mass-action targets — see "Tips" below.
+### Choosing a Drop-Ship Source mode
+
+| Mode | Default eligibility | Use when |
+|---|---|---|
+| **Manual flag only** | Stock-driven | Simple catalogue; you tick *Drop-Ship Eligible* per product |
+| **Supplier allow-list** | Ineligible unless a *qualifying* supplier ships it | Only a *few* suppliers can ship next-day |
+| **Supplier deny-list** | **Eligible** unless a *denylisted* supplier is out of stock | *Almost everything* ships next-day except a handful of slow suppliers |
+
+Supplier names are pure admin config (one per line, case-insensitive) — the module is store-agnostic and ships with no built-in supplier names.
+
+Both per-product flags work as Magento mass-action targets — see "Tips" below.
 
 ## Tips for managing the catalogue
 

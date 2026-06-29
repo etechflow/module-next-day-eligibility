@@ -22,11 +22,22 @@ class Config
     private const XML_PATH_DROP_SHIP_SOURCE       = 'etechflow_nextdayeligibility/drop_ship/source';
     private const XML_PATH_SUPPLIER_PAIRS         = 'etechflow_nextdayeligibility/drop_ship/supplier_pairs';
     private const XML_PATH_SUPPLIER_QUALIFYING    = 'etechflow_nextdayeligibility/drop_ship/qualifying_suppliers';
+    private const XML_PATH_SUPPLIER_DENYLIST      = 'etechflow_nextdayeligibility/drop_ship/denylist_suppliers';
     private const XML_PATH_SUPPLIER_MATCH_MODE    = 'etechflow_nextdayeligibility/drop_ship/supplier_match_mode';
     private const XML_PATH_BADGE_VISIBILITY = 'etechflow_nextdayeligibility/general/badge_visibility';
 
     public const DROP_SHIP_SOURCE_FLAG     = 'flag';
     public const DROP_SHIP_SOURCE_SUPPLIER = 'supplier';
+
+    /**
+     * Deny-list mode (v1.7+). Inverse of supplier mode: every product is
+     * next-day eligible EXCEPT those whose (shipping) supplier is on the
+     * deny list AND which are out of stock. Products with no supplier, or a
+     * supplier not on the deny list, are eligible regardless of stock — they
+     * are assumed to drop-ship next-day. Use this when "almost everything
+     * ships next-day except a handful of slow suppliers".
+     */
+    public const DROP_SHIP_SOURCE_DENYLIST = 'supplier_denylist';
 
     /**
      * Supplier match modes (v1.6.3+).
@@ -283,8 +294,8 @@ class Config
             $storeId
         );
         $value = is_string($value) ? trim($value) : '';
-        return $value === self::DROP_SHIP_SOURCE_SUPPLIER
-            ? self::DROP_SHIP_SOURCE_SUPPLIER
+        return in_array($value, [self::DROP_SHIP_SOURCE_SUPPLIER, self::DROP_SHIP_SOURCE_DENYLIST], true)
+            ? $value
             : self::DROP_SHIP_SOURCE_FLAG;
     }
 
@@ -367,6 +378,40 @@ class Config
     {
         $raw = (string) $this->scopeConfig->getValue(
             self::XML_PATH_SUPPLIER_QUALIFYING,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        );
+        if ($raw === '') {
+            return [];
+        }
+
+        $names = [];
+        foreach (preg_split('/\R/', $raw) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) {
+                continue;
+            }
+            $names[] = $line;
+        }
+        return $names;
+    }
+
+    /**
+     * Supplier names that DO NOT ship next-day, parsed from the multi-line
+     * deny-list config field. Used only in deny-list mode. A product whose
+     * (shipping) supplier matches one of these is ineligible when out of
+     * stock; everything else is eligible. Match is case-insensitive, trimmed.
+     *
+     * Empty list = nothing is denied → every product is eligible (deny-list
+     * mode effectively off).
+     *
+     * @param int|null $storeId
+     * @return string[]
+     */
+    public function getDenylistSupplierNames(?int $storeId = null): array
+    {
+        $raw = (string) $this->scopeConfig->getValue(
+            self::XML_PATH_SUPPLIER_DENYLIST,
             ScopeInterface::SCOPE_STORE,
             $storeId
         );

@@ -120,13 +120,28 @@ class EligibilityEvaluator
             return true;
         }
 
+        $source = $this->config->getDropShipSource();
+
         // Precedence 3: supplier-based detection (v1.5+). Only runs when
         // admin has switched the Drop-Ship Source mode to supplier — the
         // resolver itself also returns false fast if no pairs or qualifying
         // names are configured, so this is cheap when off.
-        if ($this->config->getDropShipSource() === Config::DROP_SHIP_SOURCE_SUPPLIER
+        if ($source === Config::DROP_SHIP_SOURCE_SUPPLIER
             && $this->supplierResolver->isDropShipEligible($productId)
         ) {
+            return true;
+        }
+
+        // Precedence 3b: deny-list mode (v1.7+). Inverse of supplier mode —
+        // everything is eligible EXCEPT a denylisted supplier that is also out
+        // of stock. A denylisted supplier WITH stock is still eligible (ships
+        // from own stock); a non-denylisted supplier (or no supplier at all) is
+        // always eligible (assumed to drop-ship next-day).
+        if ($source === Config::DROP_SHIP_SOURCE_DENYLIST) {
+            $stockOk = $stockItem->getIsInStock() && (float) $stockItem->getQty() > 0;
+            if ($this->supplierResolver->isDenylisted($productId) && !$stockOk) {
+                return false;
+            }
             return true;
         }
 
