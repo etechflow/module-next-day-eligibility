@@ -9,7 +9,7 @@ use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductColl
 use Magento\ConfigurableProduct\Model\Product\Type\Configurable as ConfigurableType;
 use Magento\GroupedProduct\Model\Product\Type\Grouped as GroupedType;
 use Magento\InventorySalesApi\Api\GetProductSalableQtyInterface;
-use Magento\InventorySalesApi\Api\StockByWebsiteIdResolverInterface;
+use Magento\InventorySalesApi\Model\StockByWebsiteIdResolverInterface;
 use Magento\Quote\Model\Quote\Item as QuoteItem;
 use Psr\Log\LoggerInterface;
 
